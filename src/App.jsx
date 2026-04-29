@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const MODES = [
   { id: "general", label: "General", icon: "⚡", color: "#e040fb", prompt: "You are Plasma, a highly intelligent and helpful AI assistant." },
-  { id: "analyst", label: "Analyst", icon: "📊", color: "#00e5ff", prompt: "You are Plasma in Analyst mode. Think critically and provide structured, data-driven responses." },
-  { id: "coder", label: "Coder", icon: "💻", color: "#69ff47", prompt: "You are Plasma in Coder mode. Write clean, efficient code with clear explanations." },
-  { id: "creative", label: "Creative", icon: "🎨", color: "#ff6d00", prompt: "You are Plasma in Creative mode. Be imaginative and help with writing, ideas, and creativity." },
+  { id: "analyst", label: "Analyst", icon: "📊", color: "#00e5ff", prompt: "You are Plasma in Analyst mode. Think critically and provide structured responses." },
+  { id: "coder", label: "Coder", icon: "💻", color: "#69ff47", prompt: "You are Plasma in Coder mode. Write clean efficient code with clear explanations." },
+  { id: "creative", label: "Creative", icon: "🎨", color: "#ff6d00", prompt: "You are Plasma in Creative mode. Be imaginative and help with writing and ideas." },
 ];
 
 const FREE_LIMIT = 20;
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
