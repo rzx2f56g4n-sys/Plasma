@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const SUPABASE_URL = "https://thzcuewacverymlgytys.supabase.co";
-const SUPABASE_KEY = "sb_publishable_zS4v35IiBbbS5w2cye0F_w__jBn8q1T";
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+import { createClient } from "@supabase/supabase-js";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 
 const MODES = [
   { id: "general", label: "General", icon: "⚡", color: "#e040fb", prompt: "You are Plasma, a highly intelligent and helpful AI assistant." },
@@ -12,7 +10,8 @@ const MODES = [
   { id: "creative", label: "Creative", icon: "🎨", color: "#ff6d00", prompt: "You are Plasma in Creative mode. Be imaginative and help with writing, ideas, and creativity." },
 ];
 
-const FREE_LIMIT = 20;export default function App() {
+const FREE_LIMIT = 20;
+export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [email, setEmail] = useState("");
