@@ -117,9 +117,10 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #060a12, #0d0618)", fontFamily: "sans-serif", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: "14px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(6,10,18,0.8)" }}>
         <div style={{ fontSize: 20, fontWeight: 800, background: "linear-gradient(90deg, #e040fb, #00e5ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>PLASMA</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>{profile?.plan === "free" ? ${profile?.message_count || 0}/${FREE_LIMIT} free messages : "Pro ✨"}</div>
-          <button onClick={handleSignOut} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", padding: "6px 14px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Sign Out</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}
+         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>{profile?.plan === "free" ? `${profile?.message_count || 0}/${FREE_LIMIT} messages used` : "Unlimited"}
+         </div>
+      <button onClick={handleSignOut} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", padding: "6px 14px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Sign Out</button>
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, padding: "10px 24px", borderBottom: "1px solid rgba(255,255,255,0.04)", overflowX: "auto" }}>
