@@ -119,7 +119,7 @@ export default function App() {
         <div style={{ fontSize: 20, fontWeight: 800, background: "linear-gradient(90deg, #e040fb, #00e5ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>PLASMA</div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>{profile?.plan === "free" ? (profile?.message_count || 0) + "/" + FREE_LIMIT + " messages used" : "Unlimited"}</div>
-         </div>
+        
       <button onClick={handleSignOut} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", padding: "6px 14px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Sign Out</button>
         </div>
       </div>
