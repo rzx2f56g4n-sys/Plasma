@@ -13,7 +13,7 @@ const MODES = [
   { id: "patient", label: "Patient Info", icon: "💊", color: "#ff6d00", prompt: "You are Plasmed in Patient Info mode. You explain medical conditions, procedures, medications, and aftercare instructions in simple, easy-to-understand language suitable for patients. Always recommend consulting their doctor for personal medical advice." },
 ];
 
-const FREE_LIMIT = 20;
+const FREE_LIMIT = 500;
 
 export default function App() {
   const [session, setSession] = useState(null);
