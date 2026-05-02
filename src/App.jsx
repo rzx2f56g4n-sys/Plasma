@@ -77,11 +77,10 @@ export default function App() {
     await supabase.from("profiles").update({ message_count: (profile?.message_count || 0) + 1 }).eq("id", session.user.id);
     await fetchProfile();
     try {
-const response = await fetch("/api/chat", {
-method:"POST",
-  headers: { "Content-Type": "application/json" },
-      
-        body: JSON.stringify({ model: "claude-sonnet-4-5, max_tokens: 1000, system: activeMode.prompt, messages: newMessages }),
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: activeMode.prompt, messages: newMessages }),
       });
       const data = await response.json();
       setMessages([...newMessages, { role: "assistant", content: data.content?.[0]?.text || "Error getting response." }]);
