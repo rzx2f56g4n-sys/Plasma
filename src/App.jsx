@@ -78,7 +78,8 @@ export default function App() {
     await fetchProfile();
     try {
 const response = await fetch("/api/chat", {
- headers: { "Content-Type": "application/json" },
+method:"POST"
+  headers: { "Content-Type": "application/json" },
       
         body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: activeMode.prompt, messages: newMessages }),
       });
