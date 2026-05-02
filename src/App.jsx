@@ -77,7 +77,7 @@ export default function App() {
     await supabase.from("profiles").update({ message_count: (profile?.message_count || 0) + 1 }).eq("id", session.user.id);
     await fetchProfile();
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, system: activeMode.prompt, messages: newMessages }),
