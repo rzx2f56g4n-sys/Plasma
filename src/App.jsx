@@ -92,10 +92,10 @@ export default function App() {
   };
 
   if (!session) return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #020d08, #061a0f)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a1f14, #0d2818)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif" }}>
       <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 20, padding: 40, width: 360 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 32, fontWeight: 800, background: "linear-gradient(90deg, #00c853, #00e5ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Plasmed</div>
+          <div style={{ fontSize: 32, fontWeight: 800, background: "linear-gradient(90deg, #00c853, #00e5ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>PLASMED</div>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, marginTop: 4 }}>AI for Medical Practices</div>
         </div>
         <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }} />
@@ -115,9 +115,9 @@ export default function App() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #020d08, #061a0f)", fontFamily: "sans-serif", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "14px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(2,13,8,0.8)" }}>
-        <div style={{ fontSize: 20, fontWeight: 800, background: "linear-gradient(90deg, #00c853, #00e5ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Plasmed</div>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0a1f14, #0d2818)", fontFamily: "sans-serif", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "14px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(10,31,20,0.8)" }}>
+        <div style={{ fontSize: 20, fontWeight: 800, background: "linear-gradient(90deg, #00c853, #00e5ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>PLASMED</div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>{profile?.plan === "free" ? (profile?.message_count || 0) + "/" + FREE_LIMIT + " messages used" : "Unlimited"}</div>
           <button onClick={handleSignOut} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", padding: "6px 14px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Sign Out</button>
@@ -131,18 +131,18 @@ export default function App() {
         ))}
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: 24, maxWidth: 800, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-        {messages.length === 0 && <div style={{ textAlign: "center", marginTop: 80, color: "rgba(255,255,255,0.2)", fontSize: 16 }}>Welcome to Plasmed 🏥 Your medical AI assistant</div>}
+        {messages.length === 0 && <div style={{ textAlign: "center", marginTop: 80, color: "rgba(255,255,255,0.2)", fontSize: 16 }}>Welcome to PLASMED 🏥 Your medical AI assistant</div>}
         {messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: 16 }}>
             <div style={{ maxWidth: "72%", padding: "12px 16px", borderRadius: msg.role === "user" ? "20px 20px 4px 20px" : "20px 20px 20px 4px", background: msg.role === "user" ? "linear-gradient(135deg, " + activeMode.color + "cc, " + activeMode.color + "88)" : "rgba(255,255,255,0.05)", border: msg.role === "user" ? "none" : "1px solid rgba(255,255,255,0.08)", color: "#f0f0f0", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{msg.content}</div>
           </div>
         ))}
-        {loading && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 14, padding: "8px 0" }}>Plasmed is thinking...</div>}
+        {loading && <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 14, padding: "8px 0" }}>PLASMED is thinking...</div>}
         <div ref={bottomRef} />
       </div>
-      <div style={{ padding: "16px 24px 24px", background: "rgba(2,13,8,0.9)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+      <div style={{ padding: "16px 24px 24px", background: "rgba(10,31,20,0.9)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
         <div style={{ maxWidth: 800, margin: "0 auto", display: "flex", gap: 12, alignItems: "flex-end" }}>
-          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }}} placeholder="Message Plasmed..." rows={1} style={{ flex: 1, padding: "12px 16px", borderRadius: 14, border: "1px solid " + activeMode.color + "44", background: "rgba(255,255,255,0.04)", color: "#f0f0f0", fontSize: 14, resize: "none", fontFamily: "sans-serif" }} />
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }}} placeholder="Message PLASMED..." rows={1} style={{ flex: 1, padding: "12px 16px", borderRadius: 14, border: "1px solid " + activeMode.color + "44", background: "rgba(255,255,255,0.04)", color: "#f0f0f0", fontSize: 14, resize: "none", fontFamily: "sans-serif" }} />
           <button onClick={sendMessage} disabled={!input.trim() || loading} style={{ width: 48, height: 48, borderRadius: 12, border: "none", background: input.trim() && !loading ? "linear-gradient(135deg, " + activeMode.color + ", #00e5ff)" : "rgba(255,255,255,0.06)", cursor: input.trim() && !loading ? "pointer" : "not-allowed", color: "#fff", fontSize: 20 }}>↑</button>
         </div>
       </div>
