@@ -52,27 +52,46 @@ return { maxWidth: "72%", padding: "12px 16px", borderRadius: "20px 20px 4px 20p
 
 var aiBubbleStyle = { maxWidth: "72%", padding: "12px 16px", borderRadius: "20px 20px 20px 4px", background: "#fff", border: "1px solid #e2e8f0", color: "#1e293b", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" };
 
+var DEMO_PATIENTS = [
+{ id: 1, name: "Sarah M.", age: 34, lastVisit: "2026-04-10", treatment: "Jessner's Peel", followUpDays: 30, notes: "Responded well. Recommend Cosmelan next." },
+{ id: 2, name: "James K.", age: 52, lastVisit: "2026-04-25", treatment: "Hypertension review", followUpDays: 14, notes: "BP 148/92. On Amlodipine 5mg." },
+{ id: 3, name: "Priya N.", age: 28, lastVisit: "2026-05-01", treatment: "Botox — forehead", followUpDays: 14, notes: "First time. 20 units used." },
+{ id: 4, name: "David L.", age: 45, lastVisit: "2026-03-20", treatment: "Diabetes check", followUpDays: 30, notes: "HbA1c 7.2. Metformin 500mg BD." },
+];
+
+function getDaysUntilFollowUp(lastVisit, followUpDays) {
+var last = new Date(lastVisit);
+var due = new Date(last.getTime() + followUpDays * 24 * 60 * 60 * 1000);
+var today = new Date();
+return Math.ceil((due - today) / (24 * 60 * 60 * 1000));
+}
+
 export default function App() {
-const [session, setSession] = useState(null);
-const [profile, setProfile] = useState(null);
-const [email, setEmail] = useState("");
-const [password, setPassword] = useState("");
-const [authMode, setAuthMode] = useState("login");
-const [authError, setAuthError] = useState("");
-const [specialty, setSpecialty] = useState(null);
-const [activeTab, setActiveTab] = useState("chat");
-const [messages, setMessages] = useState([]);
-const [input, setInput] = useState("");
-const [loading, setLoading] = useState(false);
-const [activeMode, setActiveMode] = useState(null);
-// Voice-to-Note state
-const [isRecording, setIsRecording] = useState(false);
-const [transcript, setTranscript] = useState("");
-const [generatedNote, setGeneratedNote] = useState("");
-const [noteLoading, setNoteLoading] = useState(false);
-const [copied, setCopied] = useState(false);
-const recognitionRef = useRef(null);
-const bottomRef = useRef(null);
+var [session, setSession] = useState(null);
+var [profile, setProfile] = useState(null);
+var [email, setEmail] = useState("");
+var [password, setPassword] = useState("");
+var [authMode, setAuthMode] = useState("login");
+var [authError, setAuthError] = useState("");
+var [specialty, setSpecialty] = useState(null);
+var [activeTab, setActiveTab] = useState("chat");
+var [messages, setMessages] = useState([]);
+var [input, setInput] = useState("");
+var [loading, setLoading] = useState(false);
+var [activeMode, setActiveMode] = useState(null);
+var [isRecording, setIsRecording] = useState(false);
+var [transcript, setTranscript] = useState("");
+var [generatedNote, setGeneratedNote] = useState("");
+var [noteLoading, setNoteLoading] = useState(false);
+var [copied, setCopied] = useState(false);
+var [patients, setPatients] = useState(DEMO_PATIENTS);
+var [showAddPatient, setShowAddPatient] = useState(false);
+var [newPatient, setNewPatient] = useState({ name: "", age: "", lastVisit: "", treatment: "", followUpDays: 14, notes: "" });
+var [selectedPatient, setSelectedPatient] = useState(null);
+var [aiReminder, setAiReminder] = useState("");
+var [reminderLoading, setReminderLoading] = useState(false);
+var recognitionRef = useRef(null);
+var bottomRef = useRef(null);
 
 useEffect(function() {
 supabase.auth.getSession().then(function(res) { setSession(res.data.session); });
@@ -111,33 +130,24 @@ setTranscript(""); setGeneratedNote(""); setActiveTab("chat");
 }
 
 function startRecording() {
-var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SpeechRecognition) {
-alert("Voice recording is not supported on this browser. Please use Chrome or Edge.");
-return;
-}
-var recognition = new SpeechRecognition();
-recognition.continuous = true;
-recognition.interimResults = true;
-recognition.lang = "en-ZA";
-var finalTranscript = "";
-recognition.onresult = function(event) {
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) { alert("Please use Chrome or Edge for voice recording."); return; }
+var rec = new SR();
+rec.continuous = true; rec.interimResults = true; rec.lang = "en-ZA";
+var final = "";
+rec.onresult = function(e) {
 var interim = "";
-for (var i = event.resultIndex; i < event.results.length; i++) {
-if (event.results[i].isFinal) {
-finalTranscript += event.results[i][0].transcript + " ";
-} else {
-interim += event.results[i][0].transcript;
+for (var i = e.resultIndex; i < e.results.length; i++) {
+if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+else interim += e.results[i][0].transcript;
 }
-}
-setTranscript(finalTranscript + interim);
+setTranscript(final + interim);
 };
-recognition.onerror = function() { setIsRecording(false); };
-recognition.onend = function() { setIsRecording(false); };
-recognitionRef.current = recognition;
-recognition.start();
-setIsRecording(true);
-setGeneratedNote("");
+rec.onerror = function() { setIsRecording(false); };
+rec.onend = function() { setIsRecording(false); };
+recognitionRef.current = rec;
+rec.start();
+setIsRecording(true); setGeneratedNote("");
 }
 
 function stopRecording() {
@@ -147,24 +157,15 @@ setIsRecording(false);
 
 async function generateNote() {
 if (!transcript.trim()) return;
-setNoteLoading(true);
-setGeneratedNote("");
+setNoteLoading(true); setGeneratedNote("");
 try {
-var response = await fetch("/api/chat", {
-method: "POST",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify({
-model: "claude-sonnet-4-5",
-max_tokens: 1000,
-system: specialty.notePrompt,
-messages: [{ role: "user", content: "Convert this consultation transcript into a structured clinical note:\n\n" + transcript }]
-}),
+var res = await fetch("/api/chat", {
+method: "POST", headers: { "Content-Type": "application/json" },
+body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, system: specialty.notePrompt, messages: [{ role: "user", content: "Convert this consultation transcript into a structured clinical note:\n\n" + transcript }] }),
 });
-var data = await response.json();
+var data = await res.json();
 setGeneratedNote(data.content && data.content[0] ? data.content[0].text : "Error generating note.");
-} catch(e) {
-setGeneratedNote("Connection error. Please try again.");
-}
+} catch(e) { setGeneratedNote("Connection error. Please try again."); }
 setNoteLoading(false);
 }
 
@@ -174,32 +175,47 @@ setCopied(true);
 setTimeout(function() { setCopied(false); }, 2000);
 }
 
+async function generateReminder(patient) {
+setSelectedPatient(patient); setAiReminder(""); setReminderLoading(true);
+var daysUntil = getDaysUntilFollowUp(patient.lastVisit, patient.followUpDays);
+var prompt = "You are a medical practice assistant. Generate a warm, professional follow-up reminder message for a patient. Patient: " + patient.name + ", Age: " + patient.age + ", Last treatment: " + patient.treatment + " on " + patient.lastVisit + ", Notes: " + patient.notes + ". Follow-up is " + (daysUntil < 0 ? Math.abs(daysUntil) + " days overdue" : "due in " + daysUntil + " days") + ". Write a short, friendly SMS-style reminder.";
+try {
+var res = await fetch("/api/chat", {
+method: "POST", headers: { "Content-Type": "application/json" },
+body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 300, system: "You are a medical practice assistant writing patient follow-up reminders.", messages: [{ role: "user", content: prompt }] }),
+});
+var data = await res.json();
+setAiReminder(data.content && data.content[0] ? data.content[0].text : "Error.");
+} catch(e) { setAiReminder("Connection error."); }
+setReminderLoading(false);
+}
+
+function addPatient() {
+if (!newPatient.name || !newPatient.lastVisit || !newPatient.treatment) return;
+var p = Object.assign({}, newPatient, { id: Date.now(), age: parseInt(newPatient.age) || 0, followUpDays: parseInt(newPatient.followUpDays) || 14 });
+setPatients(patients.concat([p]));
+setNewPatient({ name: "", age: "", lastVisit: "", treatment: "", followUpDays: 14, notes: "" });
+setShowAddPatient(false);
+}
+
 async function sendMessage() {
 if (!input.trim() || loading) return;
-if (profile && profile.plan === "free" && profile.message_count >= FREE_LIMIT) {
-alert("Free limit reached! Upgrade to Pro.");
-return;
-}
 var userMsg = { role: "user", content: input.trim() };
 var newMessages = messages.concat([userMsg]);
 setMessages(newMessages); setInput(""); setLoading(true);
 await supabase.from("profiles").update({ message_count: (profile ? profile.message_count || 0 : 0) + 1 }).eq("id", session.user.id);
 await fetchProfile();
 try {
-var response = await fetch("/api/chat", {
-method: "POST",
-headers: { "Content-Type": "application/json" },
+var res = await fetch("/api/chat", {
+method: "POST", headers: { "Content-Type": "application/json" },
 body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, system: activeMode.prompt, messages: newMessages }),
 });
-var data = await response.json();
+var data = await res.json();
 setMessages(newMessages.concat([{ role: "assistant", content: data.content && data.content[0] ? data.content[0].text : "Error." }]));
-} catch(e) {
-setMessages(newMessages.concat([{ role: "assistant", content: "Connection error." }]));
-}
+} catch(e) { setMessages(newMessages.concat([{ role: "assistant", content: "Connection error." }])); }
 setLoading(false);
 }
 
-// LOGIN
 if (!session) {
 return (
 <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Segoe UI, sans-serif" }}>
@@ -208,9 +224,6 @@ return (
 <div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a" }}>PLAS<span style={{ color: "#2563eb" }}>MED</span></div>
 <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>AI for Medical Practices</div>
 <div style={{ width: 40, height: 3, background: "#2563eb", borderRadius: 2, margin: "16px auto 0" }} />
-</div>
-<div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>
-{authMode === "login" ? "SIGN IN TO YOUR ACCOUNT" : "CREATE YOUR ACCOUNT"}
 </div>
 <input value={email} onChange={function(e) { setEmail(e.target.value); }} placeholder="Email address"
 style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 14, marginBottom: 12, boxSizing: "border-box", outline: "none", fontFamily: "inherit" }} />
@@ -246,7 +259,6 @@ return (
 );
 }
 
-// SPECIALTY SELECT
 if (!specialty) {
 return (
 <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "Segoe UI, sans-serif" }}>
@@ -279,25 +291,30 @@ style={{ background: "#fff", border: "2px solid #e2e8f0", borderRadius: 16, padd
 );
 }
 
-// MAIN APP
 var tabs = [
 { id: "chat", label: "AI Chat", icon: "💬" },
 { id: "voice", label: "Voice-to-Note", icon: "🎤" },
+{ id: "patients", label: "Follow-ups", icon: "👥" },
 ];
+
+var overduePatients = patients.filter(function(p) { return getDaysUntilFollowUp(p.lastVisit, p.followUpDays) < 0; });
+var dueSoonPatients = patients.filter(function(p) { var d = getDaysUntilFollowUp(p.lastVisit, p.followUpDays); return d >= 0 && d <= 7; });
 
 return (
 <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "Segoe UI, sans-serif", display: "flex", flexDirection: "column" }}>
-{/* Navbar */}
 <div style={{ padding: "0 28px", height: 60, borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff" }}>
 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
 <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>PLAS<span style={{ color: "#2563eb" }}>MED</span></div>
 <div style={{ width: 1, height: 18, background: "#e2e8f0" }} />
-<div style={{ fontSize: 12, color: "#fff", background: specialty.color, padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>
-{specialty.icon} {specialty.label}
-</div>
+<div style={{ fontSize: 12, color: "#fff", background: specialty.color, padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>{specialty.icon} {specialty.label}</div>
 <button onClick={function() { setSpecialty(null); setMessages([]); }} style={{ fontSize: 12, color: "#94a3b8", background: "none", border: "none", cursor: "pointer" }}>Change</button>
 </div>
 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+{overduePatients.length > 0 && (
+<div style={{ fontSize: 12, color: "#dc2626", background: "#fef2f2", padding: "4px 10px", borderRadius: 6, border: "1px solid #fecaca", fontWeight: 600 }}>
+⚠ {overduePatients.length} overdue
+</div>
+)}
 <div style={{ fontSize: 12, color: "#94a3b8", background: "#f8fafc", padding: "4px 10px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
 {profile && profile.plan === "free" ? (profile.message_count || 0) + " / " + FREE_LIMIT : "Unlimited"}
 </div>
@@ -305,14 +322,16 @@ return (
 </div>
 </div>
 
-{/* Tab Bar */}
 <div style={{ display: "flex", borderBottom: "1px solid #e2e8f0", background: "#fff", padding: "0 28px" }}>
 {tabs.map(function(tab) {
 var isActive = activeTab === tab.id;
 return (
 <button key={tab.id} onClick={function() { setActiveTab(tab.id); }}
-style={{ padding: "14px 20px", border: "none", borderBottom: isActive ? "2px solid " + specialty.color : "2px solid transparent", background: "none", color: isActive ? specialty.color : "#94a3b8", fontSize: 14, fontWeight: isActive ? 600 : 400, cursor: "pointer", fontFamily: "inherit", marginBottom: -1 }}>
+style={{ padding: "14px 20px", border: "none", borderBottom: isActive ? "2px solid " + specialty.color : "2px solid transparent", background: "none", color: isActive ? specialty.color : "#94a3b8", fontSize: 14, fontWeight: isActive ? 600 : 400, cursor: "pointer", fontFamily: "inherit", marginBottom: -1, position: "relative" }}>
 {tab.icon} {tab.label}
+{tab.id === "patients" && overduePatients.length > 0 && (
+<span style={{ position: "absolute", top: 8, right: 4, width: 8, height: 8, background: "#dc2626", borderRadius: "50%", display: "block" }} />
+)}
 </button>
 );
 })}
@@ -369,9 +388,7 @@ onKeyDown={function(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefaul
 placeholder={activeMode ? "Ask " + activeMode.label + " anything..." : "Ask anything..."}
 rows={1} style={{ flex: 1, padding: "12px 16px", borderRadius: 14, border: "1.5px solid " + (activeMode ? activeMode.color + "44" : "#e2e8f0"), background: "#f8fafc", color: "#1e293b", fontSize: 14, resize: "none", fontFamily: "inherit", outline: "none" }} />
 <button onClick={sendMessage} disabled={!input.trim() || loading}
-style={{ width: 46, height: 46, borderRadius: 12, border: "none", background: input.trim() && !loading ? (activeMode ? activeMode.color : "#2563eb") : "#e2e8f0", cursor: input.trim() && !loading ? "pointer" : "not-allowed", color: input.trim() && !loading ? "#fff" : "#94a3b8", fontSize: 18, fontWeight: 700 }}>
-↑
-</button>
+style={{ width: 46, height: 46, borderRadius: 12, border: "none", background: input.trim() && !loading ? (activeMode ? activeMode.color : "#2563eb") : "#e2e8f0", cursor: input.trim() && !loading ? "pointer" : "not-allowed", color: input.trim() && !loading ? "#fff" : "#94a3b8", fontSize: 18, fontWeight: 700 }}>↑</button>
 </div>
 </div>
 </div>
@@ -384,58 +401,124 @@ style={{ width: 46, height: 46, borderRadius: 12, border: "none", background: in
 <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>Voice-to-Note</div>
 <div style={{ fontSize: 13, color: "#94a3b8" }}>Speak your consultation freely — PLASMED converts it to a structured clinical note</div>
 </div>
-
-{/* Record Button */}
 <div style={{ textAlign: "center", marginBottom: 28 }}>
-<button
-onClick={isRecording ? stopRecording : startRecording}
-style={{ width: 80, height: 80, borderRadius: "50%", border: "none", background: isRecording ? "#dc2626" : specialty.color, color: "#fff", fontSize: 32, cursor: "pointer", boxShadow: isRecording ? "0 0 0 8px rgba(220,38,38,0.2)" : "0 4px 16px rgba(0,0,0,0.12)" }}
->
+<button onClick={isRecording ? stopRecording : startRecording}
+style={{ width: 80, height: 80, borderRadius: "50%", border: "none", background: isRecording ? "#dc2626" : specialty.color, color: "#fff", fontSize: 32, cursor: "pointer", boxShadow: isRecording ? "0 0 0 8px rgba(220,38,38,0.2)" : "0 4px 16px rgba(0,0,0,0.12)" }}>
 {isRecording ? "⏹" : "🎤"}
 </button>
 <div style={{ marginTop: 12, fontSize: 13, color: isRecording ? "#dc2626" : "#94a3b8", fontWeight: isRecording ? 600 : 400 }}>
 {isRecording ? "Recording... tap to stop" : "Tap to start recording"}
 </div>
 </div>
-
-{/* Transcript */}
 {transcript && (
 <div style={{ marginBottom: 20 }}>
-<div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8, letterSpacing: "0.5px" }}>TRANSCRIPT</div>
-<div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, fontSize: 14, color: "#1e293b", lineHeight: 1.65, minHeight: 80 }}>
-{transcript}
-</div>
-<button
-onClick={generateNote}
-disabled={noteLoading}
-style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: noteLoading ? "#e2e8f0" : specialty.color, color: noteLoading ? "#94a3b8" : "#fff", fontSize: 14, fontWeight: 600, cursor: noteLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}
->
+<div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>TRANSCRIPT</div>
+<div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, fontSize: 14, color: "#1e293b", lineHeight: 1.65, minHeight: 80 }}>{transcript}</div>
+<button onClick={generateNote} disabled={noteLoading}
+style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: noteLoading ? "#e2e8f0" : specialty.color, color: noteLoading ? "#94a3b8" : "#fff", fontSize: 14, fontWeight: 600, cursor: noteLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
 {noteLoading ? "Generating note…" : "✨ Generate Clinical Note"}
 </button>
 </div>
 )}
-
-{/* Generated Note */}
 {generatedNote && (
 <div>
-<div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8, letterSpacing: "0.5px" }}>GENERATED NOTE</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, fontSize: 14, color: "#1e293b", lineHeight: 1.8, whiteSpace: "pre-wrap", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-{generatedNote}
-</div>
-<button
-onClick={copyNote}
-style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: copied ? "#16a34a" : "#0f172a", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
->
-{copied ? "✓ Copied to clipboard!" : "📋 Copy for EMR"}
+<div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>GENERATED NOTE</div>
+<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, fontSize: 14, color: "#1e293b", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{generatedNote}</div>
+<button onClick={copyNote}
+style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: copied ? "#16a34a" : "#0f172a", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+{copied ? "✓ Copied!" : "📋 Copy for EMR"}
 </button>
-<button
-onClick={function() { setTranscript(""); setGeneratedNote(""); }}
-style={{ marginTop: 8, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}
->
+<button onClick={function() { setTranscript(""); setGeneratedNote(""); }}
+style={{ marginTop: 8, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>
 New Consultation
 </button>
 </div>
 )}
+</div>
+)}
+
+{/* FOLLOW-UPS TAB */}
+{activeTab === "patients" && (
+<div style={{ flex: 1, padding: "24px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
+<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+<div>
+<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>Patient Follow-ups</div>
+<div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>{overduePatients.length} overdue · {dueSoonPatients.length} due this week</div>
+</div>
+<button onClick={function() { setShowAddPatient(!showAddPatient); }}
+style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: specialty.color, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
++ Add Patient
+</button>
+</div>
+
+{showAddPatient && (
+<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20 }}>
+<div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", marginBottom: 14 }}>New Patient</div>
+<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+<input placeholder="Patient name" value={newPatient.name} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { name: e.target.value })); }}
+style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+<input placeholder="Age" value={newPatient.age} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { age: e.target.value })); }}
+style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+<input placeholder="Last visit date" type="date" value={newPatient.lastVisit} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { lastVisit: e.target.value })); }}
+style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+<input placeholder="Treatment / reason" value={newPatient.treatment} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { treatment: e.target.value })); }}
+style={{ padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+</div>
+<input placeholder="Follow-up in how many days?" value={newPatient.followUpDays} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { followUpDays: e.target.value })); }}
+style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", marginBottom: 10, boxSizing: "border-box" }} />
+<input placeholder="Clinical notes" value={newPatient.notes} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { notes: e.target.value })); }}
+style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", marginBottom: 12, boxSizing: "border-box" }} />
+<button onClick={addPatient}
+style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: specialty.color, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+Save Patient
+</button>
+</div>
+)}
+
+<div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+{patients.sort(function(a, b) { return getDaysUntilFollowUp(a.lastVisit, a.followUpDays) - getDaysUntilFollowUp(b.lastVisit, b.followUpDays); }).map(function(patient) {
+var daysUntil = getDaysUntilFollowUp(patient.lastVisit, patient.followUpDays);
+var isOverdue = daysUntil < 0;
+var isDueSoon = daysUntil >= 0 && daysUntil <= 7;
+var statusColor = isOverdue ? "#dc2626" : isDueSoon ? "#d97706" : "#16a34a";
+var statusBg = isOverdue ? "#fef2f2" : isDueSoon ? "#fffbeb" : "#f0fdf4";
+var statusText = isOverdue ? Math.abs(daysUntil) + "d overdue" : isDueSoon ? "Due in " + daysUntil + "d" : "Due in " + daysUntil + "d";
+return (
+<div key={patient.id} style={{ background: "#fff", border: "1px solid " + (isOverdue ? "#fecaca" : "#e2e8f0"), borderRadius: 12, padding: 16 }}>
+<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+<div style={{ flex: 1 }}>
+<div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+<div style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>{patient.name}</div>
+<div style={{ fontSize: 11, color: "#94a3b8" }}>Age {patient.age}</div>
+<div style={{ fontSize: 11, fontWeight: 600, color: statusColor, background: statusBg, padding: "2px 8px", borderRadius: 10 }}>{statusText}</div>
+</div>
+<div style={{ fontSize: 13, color: "#64748b", marginBottom: 4 }}>Last: {patient.treatment} · {patient.lastVisit}</div>
+<div style={{ fontSize: 12, color: "#94a3b8" }}>{patient.notes}</div>
+</div>
+<button onClick={function() { generateReminder(patient); }}
+style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid " + specialty.color + "44", background: specialty.color + "10", color: specialty.color, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", marginLeft: 12 }}>
+AI Reminder
+</button>
+</div>
+{selectedPatient && selectedPatient.id === patient.id && (
+<div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #f1f5f9" }}>
+{reminderLoading ? (
+<div style={{ fontSize: 13, color: "#94a3b8" }}>Generating reminder…</div>
+) : (
+<div>
+<div style={{ fontSize: 13, color: "#1e293b", lineHeight: 1.6, background: "#f8fafc", borderRadius: 8, padding: 12, marginBottom: 8 }}>{aiReminder}</div>
+<button onClick={function() { navigator.clipboard.writeText(aiReminder); }}
+style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#0f172a", color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
+📋 Copy Reminder
+</button>
+</div>
+)}
+</div>
+)}
+</div>
+);
+})}
+</div>
 </div>
 )}
 </div>
