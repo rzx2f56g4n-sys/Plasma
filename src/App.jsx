@@ -250,4 +250,4 @@ style={{ padding: "7px 16px", borderRadius: 20, border: `1.5px solid ${activeMod
 {activeMode.icon}
 </div>
 )}
-<div style={msg.role === "user" ? { maxWidth: "72%", padding: "12px 16px", borderRadius: "20px 20px 4px 20px", background: activeMode.color, color: "#fff", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap",​​​​​​​​​​​​​​​​
+<div style={msg.role === "user" ? userBubble : aiBubble}>
