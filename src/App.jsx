@@ -49,7 +49,6 @@ const FREE_LIMIT = 500;
 function userBubbleStyle(color) {
 return { maxWidth: "72%", padding: "12px 16px", borderRadius: "20px 20px 4px 20px", background: color, color: "#fff", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" };
 }
-
 var aiBubbleStyle = { maxWidth: "72%", padding: "12px 16px", borderRadius: "20px 20px 20px 4px", background: "#fff", border: "1px solid #e2e8f0", color: "#1e293b", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" };
 
 function getDaysUntilFollowUp(lastVisit, followUpDays) {
@@ -58,11 +57,26 @@ var due = new Date(last.getTime() + followUpDays * 24 * 60 * 60 * 1000);
 return Math.ceil((due - new Date()) / (24 * 60 * 60 * 1000));
 }
 
+function formatCurrency(amount) {
+return "R " + parseFloat(amount || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function getMonthName(monthIndex) {
+var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+return months[monthIndex];
+}
+
 var emptyPatient = {
 full_name: "", age: "", gender: "", phone: "", id_number: "",
 payment_type: "cash", medical_aid_name: "", medical_aid_number: "",
 chronic_conditions: "", current_medications: "", allergies: "",
 last_visit: "", last_treatment: "", follow_up_days: 14, clinical_notes: ""
+};
+
+var emptyInvoice = {
+patient_id: "", consultation_date: new Date().toISOString().split("T")[0],
+reason: "", icd10_code: "", icd10_description: "", fee: "",
+payment_type: "cash", notes: "", due_date: ""
 };
 
 export default function App() {
@@ -73,7 +87,7 @@ var [password, setPassword] = useState("");
 var [authMode, setAuthMode] = useState("login");
 var [authError, setAuthError] = useState("");
 var [specialty, setSpecialty] = useState(null);
-var [activeTab, setActiveTab] = useState("chat");
+var [activeTab, setActiveTab] = useState("dashboard");
 var [messages, setMessages] = useState([]);
 var [input, setInput] = useState("");
 var [loading, setLoading] = useState(false);
@@ -99,6 +113,13 @@ var [newAction, setNewAction] = useState("");
 var [savingProtocol, setSavingProtocol] = useState(false);
 var [suggestions, setSuggestions] = useState([]);
 var [suggestionsLoading, setSuggestionsLoading] = useState(false);
+var [invoices, setInvoices] = useState([]);
+var [invoicesLoading, setInvoicesLoading] = useState(false);
+var [newInvoice, setNewInvoice] = useState(emptyInvoice);
+var [billingView, setBillingView] = useState("list");
+var [savingInvoice, setSavingInvoice] = useState(false);
+var [selectedInvoice, setSelectedInvoice] = useState(null);
+var [markingPaid, setMarkingPaid] = useState(false);
 var recognitionRef = useRef(null);
 var bottomRef = useRef(null);
 
@@ -108,7 +129,7 @@ supabase.auth.onAuthStateChange(function(_e, s) { setSession(s); });
 }, []);
 
 useEffect(function() {
-if (session) { fetchProfile(); fetchPatients(); fetchProtocols(); }
+if (session) { fetchProfile(); fetchPatients(); fetchProtocols(); fetchInvoices(); }
 }, [session]);
 
 useEffect(function() {
@@ -132,6 +153,13 @@ setProtocolsLoading(true);
 var res = await supabase.from("protocols").select("*").eq("doctor_id", session.user.id).order("created_at");
 if (res.data) setProtocols(res.data);
 setProtocolsLoading(false);
+}
+
+async function fetchInvoices() {
+setInvoicesLoading(true);
+var res = await supabase.from("invoices").select("*, patients(full_name, phone, medical_aid_name, medical_aid_number)").eq("doctor_id", session.user.id).order("created_at", { ascending: false });
+if (res.data) setInvoices(res.data);
+setInvoicesLoading(false);
 }
 
 async function savePatient() {
@@ -167,8 +195,7 @@ suggested_action: newAction.trim(),
 specialty: specialty ? specialty.id : "general"
 }]);
 await fetchProtocols();
-setNewTrigger("");
-setNewAction("");
+setNewTrigger(""); setNewAction("");
 setSavingProtocol(false);
 }
 
@@ -182,30 +209,100 @@ await supabase.from("protocols").update({ active: !active }).eq("id", id);
 await fetchProtocols();
 }
 
+async function saveInvoice() {
+if (!newInvoice.patient_id || !newInvoice.fee) return;
+setSavingInvoice(true);
+var patient = patients.find(function(p) { return p.id === newInvoice.patient_id; });
+var invNumber = "INV-" + Date.now().toString().slice(-6);
+var dueDate = newInvoice.due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+var consRes = await supabase.from("consultations").insert([{
+doctor_id: session.user.id,
+patient_id: newInvoice.patient_id,
+consultation_date: newInvoice.consultation_date,
+reason: newInvoice.reason,
+icd10_code: newInvoice.icd10_code,
+icd10_description: newInvoice.icd10_description,
+fee: parseFloat(newInvoice.fee),
+notes: newInvoice.notes
+}]).select();
+if (consRes.data && consRes.data[0]) {
+await supabase.from("invoices").insert([{
+doctor_id: session.user.id,
+patient_id: newInvoice.patient_id,
+consultation_id: consRes.data[0].id,
+invoice_number: invNumber,
+invoice_date: newInvoice.consultation_date,
+due_date: dueDate,
+payment_type: patient ? patient.payment_type : newInvoice.payment_type,
+medical_aid_name: patient ? patient.medical_aid_name : "",
+medical_aid_number: patient ? patient.medical_aid_number : "",
+amount_due: parseFloat(newInvoice.fee),
+amount_paid: 0,
+status: "unpaid",
+notes: newInvoice.notes
+}]);
+}
+await fetchInvoices();
+setNewInvoice(emptyInvoice);
+setBillingView("list");
+setSavingInvoice(false);
+}
+
+async function markAsPaid(invoice) {
+setMarkingPaid(true);
+await supabase.from("invoices").update({ status: "paid", amount_paid: invoice.amount_due }).eq("id", invoice.id);
+await supabase.from("payments").insert([{
+doctor_id: session.user.id,
+invoice_id: invoice.id,
+patient_id: invoice.patient_id,
+amount: invoice.amount_due,
+payment_date: new Date().toISOString().split("T")[0],
+payment_method: invoice.payment_type,
+reference: invoice.invoice_number
+}]);
+await fetchInvoices();
+setMarkingPaid(false);
+setSelectedInvoice(null);
+setBillingView("list");
+}
+
+function printInvoice(invoice) {
+var patient = invoice.patients || {};
+var win = window.open("", "_blank");
+win.document.write(
+"<html><head><title>Invoice " + invoice.invoice_number + "</title>" +
+"<style>body{font-family:Arial,sans-serif;padding:40px;color:#1e293b;} .header{display:flex;justify-content:space-between;margin-bottom:32px;} .logo{font-size:24px;font-weight:800;} .label{font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:4px;} .value{font-size:14px;margin-bottom:12px;} table{width:100%;border-collapse:collapse;margin:24px 0;} th{background:#f8fafc;padding:10px 12px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;} td{padding:12px;border-bottom:1px solid #f1f5f9;font-size:14px;} .total{text-align:right;font-size:18px;font-weight:700;margin-top:16px;} .status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;} .paid{background:#f0fdf4;color:#16a34a;} .unpaid{background:#fef2f2;color:#dc2626;} .footer{margin-top:48px;padding-top:20px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;text-align:center;}</style>" +
+"</head><body>" +
+"<div class='header'><div><div class='logo'>PLAS<span style='color:#2563eb'>MED</span></div><div style='font-size:12px;color:#94a3b8;margin-top:4px'>AI for Medical Practices</div></div>" +
+"<div style='text-align:right'><div style='font-size:20px;font-weight:700;color:#1e293b'>INVOICE</div><div style='font-size:16px;color:#2563eb;font-weight:600'>" + invoice.invoice_number + "</div><span class='status " + invoice.status + "'>" + invoice.status.toUpperCase() + "</span></div></div>" +
+"<div style='display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:32px;'>" +
+"<div><div class='label'>BILLED TO</div><div style='font-size:16px;font-weight:600'>" + (patient.full_name || "—") + "</div><div style='font-size:13px;color:#64748b'>" + (patient.phone || "") + "</div>" +
+(invoice.payment_type === "medical_aid" ? "<div style='font-size:13px;color:#0891b2;margin-top:4px'>Medical Aid: " + (invoice.medical_aid_name || "") + " · " + (invoice.medical_aid_number || "") + "</div>" : "<div style='font-size:13px;color:#16a34a;margin-top:4px'>Cash Patient</div>") + "</div>" +
+"<div><div class='label'>INVOICE DATE</div><div class='value'>" + invoice.invoice_date + "</div><div class='label'>DUE DATE</div><div class='value'>" + (invoice.due_date || "—") + "</div></div></div>" +
+"<table><tr><th>DESCRIPTION</th><th>ICD-10</th><th>AMOUNT</th></tr>" +
+"<tr><td>" + (invoice.notes || "Consultation") + "</td><td>" + (invoice.invoice_number || "—") + "</td><td>R " + parseFloat(invoice.amount_due).toFixed(2) + "</td></tr></table>" +
+"<div class='total'>Total Due: R " + parseFloat(invoice.amount_due).toFixed(2) + "</div>" +
+"<div style='margin-top:8px;text-align:right;font-size:13px;color:" + (invoice.status === "paid" ? "#16a34a" : "#dc2626") + ";font-weight:600'>Amount Paid: R " + parseFloat(invoice.amount_paid || 0).toFixed(2) + " · Outstanding: R " + (parseFloat(invoice.amount_due) - parseFloat(invoice.amount_paid || 0)).toFixed(2) + "</div>" +
+"<div class='footer'>Generated by PLASMED · AI for Medical Practices · plasmed-mocha.vercel.app</div>" +
+"</body></html>"
+);
+win.document.close();
+win.print();
+}
+
 async function runTreatmentSuggester() {
 if (patients.length === 0 || protocols.length === 0) return;
-setSuggestionsLoading(true);
-setSuggestions([]);
-
+setSuggestionsLoading(true); setSuggestions([]);
 var activeProtocols = protocols.filter(function(p) { return p.active; });
 var patientSummaries = patients.map(function(p) {
-return "Patient: " + p.full_name + ", Age: " + (p.age || "?") + ", Last treatment: " + (p.last_treatment || "none") + ", Chronic conditions: " + (p.chronic_conditions || "none") + ", Medications: " + (p.current_medications || "none") + ", Last visit: " + (p.last_visit || "unknown") + ", Notes: " + (p.clinical_notes || "none");
+return "Patient: " + p.full_name + ", Age: " + (p.age || "?") + ", Last treatment: " + (p.last_treatment || "none") + ", Chronic: " + (p.chronic_conditions || "none") + ", Meds: " + (p.current_medications || "none") + ", Notes: " + (p.clinical_notes || "none");
 }).join("\n");
-
-var protocolSummaries = activeProtocols.map(function(p) {
-return "IF " + p.trigger_condition + " THEN " + p.suggested_action;
-}).join("\n");
-
-var prompt = "You are a clinical AI assistant. Based on the doctor's protocols and patient list, identify which patients match which protocols and generate specific proactive suggestions.\n\nDOCTOR PROTOCOLS:\n" + protocolSummaries + "\n\nPATIENT LIST:\n" + patientSummaries + "\n\nFor each match found, respond in this exact format:\nPATIENT: [name]\nSUGGESTION: [specific actionable suggestion]\nREASON: [why this protocol applies]\n---\n\nOnly include patients where a protocol clearly applies. Be specific and clinical.";
-
+var protocolSummaries = activeProtocols.map(function(p) { return "IF " + p.trigger_condition + " THEN " + p.suggested_action; }).join("\n");
+var prompt = "You are a clinical AI. Based on these protocols and patients, identify matches and generate specific proactive suggestions.\n\nPROTOCOLS:\n" + protocolSummaries + "\n\nPATIENTS:\n" + patientSummaries + "\n\nFor each match:\nPATIENT: [name]\nSUGGESTION: [action]\nREASON: [why]\n---\n\nOnly include clear matches. Be specific and clinical.";
 try {
 var res = await fetch("/api/chat", {
 method: "POST", headers: { "Content-Type": "application/json" },
-body: JSON.stringify({
-model: "claude-sonnet-4-5", max_tokens: 1500,
-system: "You are a proactive clinical AI that matches patient data to doctor protocols and generates specific treatment suggestions.",
-messages: [{ role: "user", content: prompt }]
-}),
+body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1500, system: "You are a proactive clinical AI matching patient data to doctor protocols.", messages: [{ role: "user", content: prompt }] }),
 });
 var data = await res.json();
 var text = data.content && data.content[0] ? data.content[0].text : "";
@@ -221,9 +318,7 @@ if (line.startsWith("REASON:")) obj.reason = line.replace("REASON:", "").trim();
 return obj;
 }).filter(function(s) { return s.patient && s.suggestion; });
 setSuggestions(parsed);
-} catch(e) {
-setSuggestions([{ patient: "Error", suggestion: "Connection error. Please try again.", reason: "" }]);
-}
+} catch(e) { setSuggestions([{ patient: "Error", suggestion: "Connection error.", reason: "" }]); }
 setSuggestionsLoading(false);
 }
 
@@ -242,12 +337,12 @@ else setAuthError("Check your email to confirm your account!");
 async function handleSignOut() {
 await supabase.auth.signOut();
 setMessages([]); setProfile(null); setSpecialty(null); setActiveMode(null);
-setTranscript(""); setGeneratedNote(""); setPatients([]); setProtocols([]);
+setTranscript(""); setGeneratedNote(""); setPatients([]); setProtocols([]); setInvoices([]);
 }
 
 function selectSpecialty(s) {
 setSpecialty(s); setActiveMode(s.modes[0]); setMessages([]);
-setTranscript(""); setGeneratedNote(""); setActiveTab("chat");
+setTranscript(""); setGeneratedNote(""); setActiveTab("dashboard");
 }
 
 function startRecording() {
@@ -332,6 +427,7 @@ setLoading(false);
 var inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff", color: "#1e293b" };
 var labelStyle = { fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4, letterSpacing: "0.4px", display: "block" };
 
+// LOGIN
 if (!session) {
 return (
 <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Segoe UI, sans-serif" }}>
@@ -409,14 +505,25 @@ style={{ background: "#fff", border: "2px solid #e2e8f0", borderRadius: 16, padd
 
 var overdueCount = patients.filter(function(p) { return p.last_visit && getDaysUntilFollowUp(p.last_visit, p.follow_up_days) < 0; }).length;
 var filteredPatients = patients.filter(function(p) { return !searchText || p.full_name.toLowerCase().includes(searchText.toLowerCase()); });
+var totalRevenue = invoices.reduce(function(sum, inv) { return sum + parseFloat(inv.amount_paid || 0); }, 0);
+var totalOutstanding = invoices.reduce(function(sum, inv) { return sum + (parseFloat(inv.amount_due) - parseFloat(inv.amount_paid || 0)); }, 0);
+var thisMonth = new Date().getMonth();
+var thisYear = new Date().getFullYear();
+var monthlyRevenue = invoices.filter(function(inv) {
+var d = new Date(inv.invoice_date);
+return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+}).reduce(function(sum, inv) { return sum + parseFloat(inv.amount_paid || 0); }, 0);
+var unpaidCount = invoices.filter(function(inv) { return inv.status === "unpaid"; }).length;
 
 var tabs = [
+{ id: "dashboard", label: "Dashboard", icon: "📊" },
 { id: "chat", label: "AI Chat", icon: "💬" },
 { id: "voice", label: "Voice-to-Note", icon: "🎤" },
 { id: "patients", label: "Patients", icon: "👤" },
 { id: "followups", label: "Follow-ups", icon: "🔔" },
 { id: "protocols", label: "My Protocols", icon: "📋" },
 { id: "suggester", label: "AI Suggester", icon: "💡" },
+{ id: "billing", label: "Billing", icon: "💰" },
 ];
 
 return (
@@ -449,15 +556,108 @@ return (
 var isActive = activeTab === tab.id;
 return (
 <button key={tab.id} onClick={function() { setActiveTab(tab.id); }}
-style={{ padding: "13px 14px", border: "none", borderBottom: isActive ? "2px solid " + specialty.color : "2px solid transparent", background: "none", color: isActive ? specialty.color : "#94a3b8", fontSize: 12, fontWeight: isActive ? 600 : 400, cursor: "pointer", fontFamily: "inherit", marginBottom: -1, whiteSpace: "nowrap", position: "relative" }}>
+style={{ padding: "13px 12px", border: "none", borderBottom: isActive ? "2px solid " + specialty.color : "2px solid transparent", background: "none", color: isActive ? specialty.color : "#94a3b8", fontSize: 12, fontWeight: isActive ? 600 : 400, cursor: "pointer", fontFamily: "inherit", marginBottom: -1, whiteSpace: "nowrap", position: "relative" }}>
 {tab.icon} {tab.label}
 {tab.id === "followups" && overdueCount > 0 && (
 <span style={{ position: "absolute", top: 8, right: 2, width: 6, height: 6, background: "#dc2626", borderRadius: "50%" }} />
+)}
+{tab.id === "billing" && unpaidCount > 0 && (
+<span style={{ position: "absolute", top: 8, right: 2, width: 6, height: 6, background: "#d97706", borderRadius: "50%" }} />
 )}
 </button>
 );
 })}
 </div>
+
+{/* DASHBOARD */}
+{activeTab === "dashboard" && (
+<div style={{ flex: 1, padding: "24px 20px", maxWidth: 900, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
+<div style={{ marginBottom: 24 }}>
+<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>Practice Dashboard</div>
+<div style={{ fontSize: 13, color: "#94a3b8" }}>Welcome back, Doctor</div>
+</div>
+
+<div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+{[
+{ label: "Total Revenue", value: formatCurrency(totalRevenue), icon: "💰", color: "#16a34a", bg: "#f0fdf4" },
+{ label: "This Month", value: formatCurrency(monthlyRevenue), icon: "📅", color: "#2563eb", bg: "#eff6ff" },
+{ label: "Outstanding", value: formatCurrency(totalOutstanding), icon: "⏳", color: "#d97706", bg: "#fffbeb" },
+{ label: "Patients", value: patients.length, icon: "👤", color: "#7c3aed", bg: "#faf5ff" },
+].map(function(stat) {
+return (
+<div key={stat.label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 16 }}>
+<div style={{ fontSize: 20, marginBottom: 8 }}>{stat.icon}</div>
+<div style={{ fontSize: 20, fontWeight: 700, color: stat.color, marginBottom: 4 }}>{stat.value}</div>
+<div style={{ fontSize: 12, color: "#94a3b8" }}>{stat.label}</div>
+</div>
+);
+})}
+</div>
+
+<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20 }}>
+<div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", marginBottom: 16 }}>Payment Split</div>
+{(function() {
+var cashInvoices = invoices.filter(function(i) { return i.payment_type === "cash"; });
+var medAidInvoices = invoices.filter(function(i) { return i.payment_type === "medical_aid"; });
+var cashTotal = cashInvoices.reduce(function(s, i) { return s + parseFloat(i.amount_paid || 0); }, 0);
+var medTotal = medAidInvoices.reduce(function(s, i) { return s + parseFloat(i.amount_paid || 0); }, 0);
+var total = cashTotal + medTotal || 1;
+return (
+<div>
+<div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+<span style={{ fontSize: 13, color: "#64748b" }}>💵 Cash</span>
+<span style={{ fontSize: 13, fontWeight: 600, color: "#16a34a" }}>{formatCurrency(cashTotal)}</span>
+</div>
+<div style={{ height: 8, background: "#f1f5f9", borderRadius: 4, marginBottom: 12, overflow: "hidden" }}>
+<div style={{ height: "100%", width: (cashTotal / total * 100) + "%", background: "#16a34a", borderRadius: 4 }} />
+</div>
+<div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+<span style={{ fontSize: 13, color: "#64748b" }}>🏥 Medical Aid</span>
+<span style={{ fontSize: 13, fontWeight: 600, color: "#0891b2" }}>{formatCurrency(medTotal)}</span>
+</div>
+<div style={{ height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+<div style={{ height: "100%", width: (medTotal / total * 100) + "%", background: "#0891b2", borderRadius: 4 }} />
+</div>
+</div>
+);
+})()}
+</div>
+
+<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20 }}>
+<div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", marginBottom: 16 }}>Quick Actions</div>
+<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+<button onClick={function() { setActiveTab("billing"); setBillingView("new"); }}
+style={{ padding: "10px 14px", borderRadius: 8, border: "none", background: specialty.color, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+💰 New Invoice
+</button>
+<button onClick={function() { setActiveTab("patients"); setPatientView("add"); }}
+style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#1e293b", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+👤 Add Patient
+</button>
+<button onClick={function() { setActiveTab("voice"); }}
+style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#1e293b", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+🎤 Start Voice Note
+</button>
+<button onClick={function() { setActiveTab("suggester"); }}
+style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#1e293b", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+💡 Run AI Suggester
+</button>
+</div>
+</div>
+</div>
+
+{overdueCount > 0 && (
+<div onClick={function() { setActiveTab("followups"); }} style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: 16, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+<div>
+<div style={{ fontSize: 14, fontWeight: 600, color: "#dc2626", marginBottom: 2 }}>⚠ {overdueCount} overdue follow-up{overdueCount > 1 ? "s" : ""}</div>
+<div style={{ fontSize: 12, color: "#b91c1c" }}>Tap to view and send reminders</div>
+</div>
+<div style={{ color: "#dc2626", fontSize: 18 }}>›</div>
+</div>
+)}
+</div>
+)}
 
 {/* AI CHAT */}
 {activeTab === "chat" && (
@@ -557,7 +757,7 @@ New Consultation
 </div>
 )}
 
-{/* PATIENTS TAB */}
+{/* PATIENTS */}
 {activeTab === "patients" && (
 <div style={{ flex: 1, padding: "24px 20px", maxWidth: 860, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
 {patientView === "list" && (
@@ -589,9 +789,7 @@ return (
 style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
 <div>
 <div style={{ fontSize: 15, fontWeight: 600, color: "#0f172a", marginBottom: 3 }}>{p.full_name}</div>
-<div style={{ fontSize: 12, color: "#94a3b8" }}>
-{p.age ? "Age " + p.age : ""}{p.gender ? " · " + p.gender : ""}{p.last_treatment ? " · " + p.last_treatment : ""}
-</div>
+<div style={{ fontSize: 12, color: "#94a3b8" }}>{p.age ? "Age " + p.age : ""}{p.gender ? " · " + p.gender : ""}{p.last_treatment ? " · " + p.last_treatment : ""}</div>
 </div>
 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
 <div style={{ fontSize: 11, fontWeight: 600, color: p.payment_type === "medical_aid" ? "#0891b2" : "#16a34a", background: p.payment_type === "medical_aid" ? "#e0f2fe" : "#f0fdf4", padding: "3px 8px", borderRadius: 8 }}>
@@ -613,25 +811,49 @@ style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padd
 <button onClick={function() { setPatientView("list"); setNewPatient(emptyPatient); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#64748b" }}>←</button>
 <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>New Patient</div>
 </div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
-<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Personal Details</div>
+{[
+{ title: "Personal Details", fields: [
+{ label: "FULL NAME *", key: "full_name", placeholder: "Full name", span: 1 },
+{ label: "AGE", key: "age", placeholder: "Age", type: "number", span: 1 },
+{ label: "GENDER", key: "gender", type: "select", options: ["", "Male", "Female", "Other"], span: 1 },
+{ label: "PHONE", key: "phone", placeholder: "082 123 4567", span: 1 },
+{ label: "ID NUMBER", key: "id_number", placeholder: "SA ID number", span: 2 },
+]},
+{ title: "Medical History", fields: [
+{ label: "CHRONIC CONDITIONS", key: "chronic_conditions", placeholder: "e.g. Hypertension, Diabetes Type 2", span: 2 },
+{ label: "CURRENT MEDICATIONS", key: "current_medications", placeholder: "e.g. Metformin 500mg", span: 2 },
+{ label: "ALLERGIES", key: "allergies", placeholder: "e.g. Penicillin", span: 2 },
+]},
+{ title: "Visit & Follow-up", fields: [
+{ label: "LAST VISIT DATE *", key: "last_visit", type: "date", span: 1 },
+{ label: "TREATMENT / REASON", key: "last_treatment", placeholder: "e.g. Hypertension review", span: 1 },
+{ label: "FOLLOW-UP IN (DAYS)", key: "follow_up_days", type: "number", placeholder: "14", span: 1 },
+{ label: "CLINICAL NOTES", key: "clinical_notes", placeholder: "Additional notes", span: 2 },
+]},
+].map(function(section) {
+return (
+<div key={section.title} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
+<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>{section.title}</div>
 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-<div><label style={labelStyle}>FULL NAME *</label><input value={newPatient.full_name} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { full_name: e.target.value })); }} style={inputStyle} placeholder="Full name" /></div>
-<div><label style={labelStyle}>AGE</label><input value={newPatient.age} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { age: e.target.value })); }} style={inputStyle} type="number" placeholder="Age" /></div>
-<div>
-<label style={labelStyle}>GENDER</label>
-<select value={newPatient.gender} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { gender: e.target.value })); }} style={inputStyle}>
-<option value="">Select</option>
-<option value="Male">Male</option>
-<option value="Female">Female</option>
-<option value="Other">Other</option>
+{section.fields.map(function(field) {
+return (
+<div key={field.key} style={{ gridColumn: field.span === 2 ? "span 2" : "span 1" }}>
+<label style={labelStyle}>{field.label}</label>
+{field.type === "select" ? (
+<select value={newPatient[field.key]} onChange={function(e) { var u = {}; u[field.key] = e.target.value; setNewPatient(Object.assign({}, newPatient, u)); }} style={inputStyle}>
+{field.options.map(function(o) { return <option key={o} value={o}>{o || "Select"}</option>; })}
 </select>
+) : (
+<input value={newPatient[field.key]} type={field.type || "text"} placeholder={field.placeholder || ""} onChange={function(e) { var u = {}; u[field.key] = e.target.value; setNewPatient(Object.assign({}, newPatient, u)); }} style={inputStyle} />
+)}
 </div>
-<div><label style={labelStyle}>PHONE</label><input value={newPatient.phone} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { phone: e.target.value })); }} style={inputStyle} placeholder="082 123 4567" /></div>
-<div style={{ gridColumn: "span 2" }}><label style={labelStyle}>ID NUMBER</label><input value={newPatient.id_number} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { id_number: e.target.value })); }} style={inputStyle} placeholder="SA ID number" /></div>
+);
+})}
 </div>
 </div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
+);
+})}
+<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20 }}>
 <div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Payment</div>
 <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
 {["cash", "medical_aid"].map(function(type) {
@@ -650,23 +872,6 @@ style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1.5px solid " + (ne
 </div>
 )}
 </div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
-<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Medical History</div>
-<div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-<div><label style={labelStyle}>CHRONIC CONDITIONS</label><input value={newPatient.chronic_conditions} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { chronic_conditions: e.target.value })); }} style={inputStyle} placeholder="e.g. Hypertension, Diabetes Type 2" /></div>
-<div><label style={labelStyle}>CURRENT MEDICATIONS</label><input value={newPatient.current_medications} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { current_medications: e.target.value })); }} style={inputStyle} placeholder="e.g. Metformin 500mg, Amlodipine 5mg" /></div>
-<div><label style={labelStyle}>ALLERGIES</label><input value={newPatient.allergies} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { allergies: e.target.value })); }} style={inputStyle} placeholder="e.g. Penicillin" /></div>
-</div>
-</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20 }}>
-<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Visit & Follow-up</div>
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-<div><label style={labelStyle}>LAST VISIT DATE *</label><input value={newPatient.last_visit} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { last_visit: e.target.value })); }} style={inputStyle} type="date" /></div>
-<div><label style={labelStyle}>TREATMENT / REASON</label><input value={newPatient.last_treatment} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { last_treatment: e.target.value })); }} style={inputStyle} placeholder="e.g. Hypertension review" /></div>
-<div><label style={labelStyle}>FOLLOW-UP IN (DAYS)</label><input value={newPatient.follow_up_days} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { follow_up_days: e.target.value })); }} style={inputStyle} type="number" placeholder="14" /></div>
-<div style={{ gridColumn: "span 2" }}><label style={labelStyle}>CLINICAL NOTES</label><input value={newPatient.clinical_notes} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { clinical_notes: e.target.value })); }} style={inputStyle} placeholder="Additional notes" /></div>
-</div>
-</div>
 <button onClick={savePatient} disabled={saving || !newPatient.full_name || !newPatient.last_visit}
 style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: saving || !newPatient.full_name ? "#e2e8f0" : specialty.color, color: saving || !newPatient.full_name ? "#94a3b8" : "#fff", fontSize: 15, fontWeight: 600, cursor: saving || !newPatient.full_name ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
 {saving ? "Saving…" : "Save Patient"}
@@ -684,8 +889,12 @@ style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", backg
 <div style={{ fontSize: 12, color: "#94a3b8" }}>{selectedPatient.age ? "Age " + selectedPatient.age : ""}{selectedPatient.gender ? " · " + selectedPatient.gender : ""}</div>
 </div>
 </div>
+<div style={{ display: "flex", gap: 8 }}>
+<button onClick={function() { setNewInvoice(Object.assign({}, emptyInvoice, { patient_id: selectedPatient.id })); setActiveTab("billing"); setBillingView("new"); }}
+style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: specialty.color, color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>+ Invoice</button>
 <button onClick={function() { deletePatient(selectedPatient.id); }}
 style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #fecaca", background: "#fef2f2", color: "#dc2626", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Delete</button>
+</div>
 </div>
 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
@@ -733,7 +942,7 @@ style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#0f1
 </div>
 )}
 
-{/* FOLLOW-UPS TAB */}
+{/* FOLLOW-UPS */}
 {activeTab === "followups" && (
 <div style={{ flex: 1, padding: "24px 20px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
 <div style={{ marginBottom: 20 }}>
@@ -770,8 +979,7 @@ return (
 <div style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>{patient.full_name}</div>
 <div style={{ fontSize: 11, fontWeight: 600, color: statusColor, background: statusBg, padding: "2px 8px", borderRadius: 10 }}>{statusText}</div>
 </div>
-<div style={{ fontSize: 12, color: "#64748b", marginBottom: 2 }}>Last: {patient.last_treatment} · {patient.last_visit}</div>
-{patient.chronic_conditions && <div style={{ fontSize: 12, color: "#94a3b8" }}>{patient.chronic_conditions}</div>}
+<div style={{ fontSize: 12, color: "#64748b" }}>Last: {patient.last_treatment} · {patient.last_visit}</div>
 </div>
 <button onClick={function() { setSelectedPatient(patient); setPatientView("profile"); setActiveTab("patients"); generateReminder(patient); }}
 style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid " + specialty.color + "44", background: specialty.color + "10", color: specialty.color, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginLeft: 12, whiteSpace: "nowrap" }}>
@@ -786,34 +994,30 @@ AI Reminder
 </div>
 )}
 
-{/* MY PROTOCOLS TAB */}
+{/* MY PROTOCOLS */}
 {activeTab === "protocols" && (
 <div style={{ flex: 1, padding: "24px 20px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
 <div style={{ marginBottom: 24 }}>
 <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>My Protocols</div>
 <div style={{ fontSize: 13, color: "#94a3b8" }}>Teach PLASMED your clinical patterns — it will proactively suggest based on your rules</div>
 </div>
-
 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20 }}>
-<div style={{ fontSize: 13, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Add New Protocol</div>
+<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Add New Protocol</div>
 <div style={{ marginBottom: 12 }}>
 <label style={labelStyle}>IF THIS CONDITION / TRIGGER</label>
-<input value={newTrigger} onChange={function(e) { setNewTrigger(e.target.value); }} style={inputStyle}
-placeholder={'e.g. "Patient had Jessner\'s peel twice" or "Diabetic patient"'} />
+<input value={newTrigger} onChange={function(e) { setNewTrigger(e.target.value); }} style={inputStyle} placeholder='e.g. "Patient had Jessner\'s peel twice"' />
 </div>
 <div style={{ marginBottom: 16 }}>
 <label style={labelStyle}>THEN SUGGEST THIS ACTION</label>
-<input value={newAction} onChange={function(e) { setNewAction(e.target.value); }} style={inputStyle}
-placeholder={'e.g. "Consider Cosmelan next" or "Check HbA1c"'} />
+<input value={newAction} onChange={function(e) { setNewAction(e.target.value); }} style={inputStyle} placeholder='e.g. "Consider Cosmelan next"' />
 </div>
 <button onClick={saveProtocol} disabled={savingProtocol || !newTrigger.trim() || !newAction.trim()}
 style={{ width: "100%", padding: "11px", borderRadius: 10, border: "none", background: !newTrigger.trim() || !newAction.trim() ? "#e2e8f0" : specialty.color, color: !newTrigger.trim() || !newAction.trim() ? "#94a3b8" : "#fff", fontSize: 14, fontWeight: 600, cursor: !newTrigger.trim() || !newAction.trim() ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
 {savingProtocol ? "Saving…" : "Save Protocol"}
 </button>
 </div>
-
 {protocolsLoading ? (
-<div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Loading protocols…</div>
+<div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Loading…</div>
 ) : protocols.length === 0 ? (
 <div style={{ textAlign: "center", padding: 40 }}>
 <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
@@ -850,20 +1054,19 @@ Delete
 </div>
 )}
 
-{/* AI TREATMENT SUGGESTER */}
+{/* AI SUGGESTER */}
 {activeTab === "suggester" && (
 <div style={{ flex: 1, padding: "24px 20px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
 <div style={{ marginBottom: 24 }}>
 <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>AI Treatment Suggester</div>
 <div style={{ fontSize: 13, color: "#94a3b8" }}>PLASMED analyses all your patients against your protocols and flags who needs attention</div>
 </div>
-
 {protocols.filter(function(p) { return p.active; }).length === 0 ? (
-<div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: 20, marginBottom: 20, textAlign: "center" }}>
+<div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: 20, textAlign: "center" }}>
 <div style={{ fontSize: 14, color: "#92400e", fontWeight: 600, marginBottom: 4 }}>No active protocols</div>
-<div style={{ fontSize: 13, color: "#b45309" }}>Add protocols in the My Protocols tab first</div>
+<div style={{ fontSize: 13, color: "#b45309", marginBottom: 12 }}>Add protocols in My Protocols tab first</div>
 <button onClick={function() { setActiveTab("protocols"); }}
-style={{ marginTop: 12, padding: "8px 16px", borderRadius: 8, border: "none", background: "#d97706", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#d97706", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
 Go to My Protocols
 </button>
 </div>
@@ -878,17 +1081,14 @@ style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", backg
 </button>
 </div>
 )}
-
 {suggestions.length > 0 && (
 <div>
-<div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", marginBottom: 12 }}>
-{suggestions.length} suggestion{suggestions.length > 1 ? "s" : ""} found
-</div>
+<div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", marginBottom: 12 }}>{suggestions.length} suggestion{suggestions.length > 1 ? "s" : ""} found</div>
 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 {suggestions.map(function(s, i) {
 return (
 <div key={i} style={{ background: "#fff", border: "1px solid " + specialty.color + "33", borderLeft: "4px solid " + specialty.color, borderRadius: 12, padding: 16 }}>
-<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+<div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
 <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{s.patient}</div>
 <div style={{ fontSize: 11, color: specialty.color, background: specialty.color + "12", padding: "3px 8px", borderRadius: 8, fontWeight: 600 }}>Protocol Match</div>
 </div>
@@ -900,10 +1100,154 @@ return (
 </div>
 </div>
 )}
+</div>
+)}
 
-{!suggestionsLoading && suggestions.length === 0 && protocols.filter(function(p) { return p.active; }).length > 0 && patients.length > 0 && (
-<div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontSize: 14 }}>
-Click the button above to analyse your patients
+{/* BILLING */}
+{activeTab === "billing" && (
+<div style={{ flex: 1, padding: "24px 20px", maxWidth: 860, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
+
+{billingView === "list" && (
+<div>
+<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+<div>
+<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>Billing</div>
+<div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>{invoices.length} invoices · {formatCurrency(totalOutstanding)} outstanding</div>
+</div>
+<button onClick={function() { setNewInvoice(emptyInvoice); setBillingView("new"); }}
+style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: specialty.color, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
++ New Invoice
+</button>
+</div>
+{invoicesLoading ? (
+<div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Loading…</div>
+) : invoices.length === 0 ? (
+<div style={{ textAlign: "center", padding: 60 }}>
+<div style={{ fontSize: 32, marginBottom: 12 }}>💰</div>
+<div style={{ fontSize: 15, fontWeight: 600, color: "#94a3b8" }}>No invoices yet</div>
+</div>
+) : (
+<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+{invoices.map(function(inv) {
+var patient = inv.patients || {};
+var outstanding = parseFloat(inv.amount_due) - parseFloat(inv.amount_paid || 0);
+return (
+<div key={inv.id} onClick={function() { setSelectedInvoice(inv); setBillingView("detail"); }}
+style={{ background: "#fff", border: "1px solid " + (inv.status === "unpaid" ? "#fde68a" : "#e2e8f0"), borderRadius: 12, padding: 16, cursor: "pointer" }}>
+<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+<div>
+<div style={{ fontSize: 15, fontWeight: 600, color: "#0f172a", marginBottom: 3 }}>{patient.full_name || "—"}</div>
+<div style={{ fontSize: 12, color: "#94a3b8" }}>{inv.invoice_number} · {inv.invoice_date}</div>
+</div>
+<div style={{ textAlign: "right" }}>
+<div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>{formatCurrency(inv.amount_due)}</div>
+<div style={{ fontSize: 11, fontWeight: 600, color: inv.status === "paid" ? "#16a34a" : "#d97706", background: inv.status === "paid" ? "#f0fdf4" : "#fffbeb", padding: "2px 8px", borderRadius: 8 }}>
+{inv.status === "paid" ? "Paid" : "Unpaid · " + formatCurrency(outstanding)}
+</div>
+</div>
+</div>
+</div>
+);
+})}
+</div>
+)}
+</div>
+)}
+
+{billingView === "new" && (
+<div>
+<div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+<button onClick={function() { setBillingView("list"); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#64748b" }}>←</button>
+<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>New Invoice</div>
+</div>
+<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
+<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Consultation Details</div>
+<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+<div style={{ gridColumn: "span 2" }}>
+<label style={labelStyle}>PATIENT *</label>
+<select value={newInvoice.patient_id} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { patient_id: e.target.value })); }} style={inputStyle}>
+<option value="">Select patient</option>
+{patients.map(function(p) { return <option key={p.id} value={p.id}>{p.full_name}</option>; })}
+</select>
+</div>
+<div>
+<label style={labelStyle}>CONSULTATION DATE</label>
+<input value={newInvoice.consultation_date} type="date" onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { consultation_date: e.target.value })); }} style={inputStyle} />
+</div>
+<div>
+<label style={labelStyle}>DUE DATE</label>
+<input value={newInvoice.due_date} type="date" onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { due_date: e.target.value })); }} style={inputStyle} />
+</div>
+<div style={{ gridColumn: "span 2" }}>
+<label style={labelStyle}>REASON / SERVICE</label>
+<input value={newInvoice.reason} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { reason: e.target.value })); }} style={inputStyle} placeholder="e.g. General consultation, Hypertension review" />
+</div>
+<div>
+<label style={labelStyle}>ICD-10 CODE</label>
+<input value={newInvoice.icd10_code} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { icd10_code: e.target.value })); }} style={inputStyle} placeholder="e.g. I10" />
+</div>
+<div>
+<label style={labelStyle}>ICD-10 DESCRIPTION</label>
+<input value={newInvoice.icd10_description} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { icd10_description: e.target.value })); }} style={inputStyle} placeholder="e.g. Essential hypertension" />
+</div>
+<div>
+<label style={labelStyle}>FEE (R) *</label>
+<input value={newInvoice.fee} type="number" onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { fee: e.target.value })); }} style={inputStyle} placeholder="0.00" />
+</div>
+<div style={{ gridColumn: "span 2" }}>
+<label style={labelStyle}>NOTES</label>
+<input value={newInvoice.notes} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { notes: e.target.value })); }} style={inputStyle} placeholder="Additional notes" />
+</div>
+</div>
+</div>
+<button onClick={saveInvoice} disabled={savingInvoice || !newInvoice.patient_id || !newInvoice.fee}
+style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: savingInvoice || !newInvoice.patient_id || !newInvoice.fee ? "#e2e8f0" : specialty.color, color: savingInvoice || !newInvoice.patient_id || !newInvoice.fee ? "#94a3b8" : "#fff", fontSize: 15, fontWeight: 600, cursor: savingInvoice || !newInvoice.patient_id || !newInvoice.fee ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+{savingInvoice ? "Saving…" : "Create Invoice"}
+</button>
+</div>
+)}
+
+{billingView === "detail" && selectedInvoice && (
+<div>
+<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+<div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+<button onClick={function() { setBillingView("list"); setSelectedInvoice(null); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#64748b" }}>←</button>
+<div>
+<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{selectedInvoice.invoice_number}</div>
+<div style={{ fontSize: 12, color: "#94a3b8" }}>{selectedInvoice.invoice_date}</div>
+</div>
+</div>
+<button onClick={function() { printInvoice(selectedInvoice); }}
+style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#0f172a", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+🖨 Print / PDF
+</button>
+</div>
+<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
+<div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+<div>
+<div style={labelStyle}>PATIENT</div>
+<div style={{ fontSize: 16, fontWeight: 600, color: "#0f172a" }}>{selectedInvoice.patients ? selectedInvoice.patients.full_name : "—"}</div>
+<div style={{ fontSize: 12, color: "#64748b" }}>{selectedInvoice.payment_type === "medical_aid" ? selectedInvoice.medical_aid_name + " · " + selectedInvoice.medical_aid_number : "Cash Patient"}</div>
+</div>
+<div style={{ textAlign: "right" }}>
+<div style={labelStyle}>STATUS</div>
+<div style={{ fontSize: 14, fontWeight: 600, color: selectedInvoice.status === "paid" ? "#16a34a" : "#d97706" }}>
+{selectedInvoice.status === "paid" ? "✓ Paid" : "⏳ Unpaid"}
+</div>
+</div>
+</div>
+<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, paddingTop: 16, borderTop: "1px solid #f1f5f9" }}>
+<div><div style={labelStyle}>AMOUNT DUE</div><div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{formatCurrency(selectedInvoice.amount_due)}</div></div>
+<div><div style={labelStyle}>AMOUNT PAID</div><div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a" }}>{formatCurrency(selectedInvoice.amount_paid)}</div></div>
+<div><div style={labelStyle}>OUTSTANDING</div><div style={{ fontSize: 18, fontWeight: 700, color: "#d97706" }}>{formatCurrency(parseFloat(selectedInvoice.amount_due) - parseFloat(selectedInvoice.amount_paid || 0))}</div></div>
+</div>
+</div>
+{selectedInvoice.status === "unpaid" && (
+<button onClick={function() { markAsPaid(selectedInvoice); }} disabled={markingPaid}
+style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: markingPaid ? "#e2e8f0" : "#16a34a", color: markingPaid ? "#94a3b8" : "#fff", fontSize: 15, fontWeight: 600, cursor: markingPaid ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+{markingPaid ? "Processing…" : "✓ Mark as Paid"}
+</button>
+)}
 </div>
 )}
 </div>
