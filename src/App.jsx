@@ -1,1258 +1,724 @@
-import { useState, useEffect, useRef } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useState, useEffect, useRef, useCallback } from "react";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// ─── Colour tokens ────────────────────────────────────────────────────────────
+const C = {
+  teal900: "#04342C", teal800: "#085041", teal600: "#0F6E56",
+  teal400: "#1D9E75", teal200: "#5DCAA5", teal100: "#9FE1CB", teal50: "#E1F5EE",
+  slate900: "#0f172a", slate800: "#1e293b", slate700: "#334155",
+  slate600: "#475569", slate500: "#64748b", slate400: "#94a3b8",
+  slate200: "#e2e8f0", slate100: "#f1f5f9", slate50: "#f8fafc",
+  amber400: "#f59e0b", amber100: "#fef3c7", amber50: "#fffbeb",
+  red500: "#ef4444", red100: "#fee2e2", red50: "#fef2f2",
+  blue500: "#3b82f6", blue100: "#dbeafe", blue50: "#eff6ff",
+  white: "#ffffff",
+};
 
-const SPECIALTIES = [
-{
-id: "gp", label: "GP / Doctor", icon: "🩺",
-description: "Clinical queries, diagnosis, drug reference & SOAP notes",
-color: "#2563eb",
-modes: [
-{ id: "general", label: "General Query", icon: "⚡", color: "#2563eb", prompt: "You are Plasmed, a clinical AI assistant for General Practitioners in South Africa." },
-{ id: "diagnosis", label: "Diagnosis", icon: "🔍", color: "#0891b2", prompt: "You are Plasmed in Diagnosis mode. Help work through differential diagnoses systematically." },
-{ id: "drugs", label: "Drug Reference", icon: "💊", color: "#7c3aed", prompt: "You are Plasmed in Drug Reference mode. Provide accurate medication information for South African practice." },
-{ id: "notes", label: "Clinical Notes", icon: "📝", color: "#0d9488", prompt: "You are Plasmed in Clinical Notes mode. Generate structured SOAP notes from the doctor's input." },
-],
-notePrompt: "You are a clinical notes AI for a South African GP. Convert the following consultation transcript into a professional structured SOAP note with these sections: SUBJECTIVE, OBJECTIVE, ASSESSMENT, PLAN. Be concise and clinical."
-},
-{
-id: "dental", label: "Dental", icon: "🦷",
-description: "Dental clinical support, treatment planning & patient notes",
-color: "#0891b2",
-modes: [
-{ id: "general", label: "General Query", icon: "⚡", color: "#0891b2", prompt: "You are Plasmed, a clinical AI assistant for Dental professionals in South Africa." },
-{ id: "treatment", label: "Treatment Plan", icon: "📋", color: "#2563eb", prompt: "You are Plasmed in Treatment Planning mode for dentistry." },
-{ id: "drugs", label: "Drug Reference", icon: "💊", color: "#7c3aed", prompt: "You are Plasmed in Drug Reference mode for dentistry." },
-{ id: "notes", label: "Clinical Notes", icon: "📝", color: "#0d9488", prompt: "You are Plasmed in Clinical Notes mode for dentistry." },
-],
-notePrompt: "You are a clinical notes AI for a South African dentist. Convert the following consultation transcript into a structured dental note with: COMPLAINT, EXAMINATION, DIAGNOSIS, TREATMENT PLAN, NOTES."
-},
-{
-id: "aesthetics", label: "Aesthetician", icon: "✨",
-description: "Treatment protocols, consult notes, follow-ups & suggestions",
-color: "#7c3aed",
-modes: [
-{ id: "protocols", label: "Treatment Protocols", icon: "✨", color: "#7c3aed", prompt: "You are Plasmed in Treatment Protocols mode for aesthetic medicine." },
-{ id: "notes", label: "Consult Notes", icon: "📝", color: "#0891b2", prompt: "You are Plasmed in Consult Notes mode for aesthetics." },
-{ id: "followup", label: "Follow-ups", icon: "🔔", color: "#2563eb", prompt: "You are Plasmed in Follow-up mode for aesthetic client management." },
-{ id: "suggestions", label: "AI Suggestions", icon: "💡", color: "#dc2626", prompt: "You are Plasmed in AI Suggestions mode for aesthetic treatment recommendations." },
-],
-notePrompt: "You are a clinical notes AI for a South African aesthetic doctor. Convert the following consultation transcript into a structured aesthetic consult note with: CLIENT CONCERN, SKIN ASSESSMENT, TREATMENT PERFORMED, PRODUCTS USED, AFTERCARE ADVICE, FOLLOW-UP PLAN."
-}
+// ─── Mock data ────────────────────────────────────────────────────────────────
+const MOCK_PATIENTS = [
+  { id: 1, name: "Thabo Nkosi", dob: "1968-03-14", id_no: "6803145678091", gender: "Male", phone: "071 234 5678", medical_aid: "Discovery Health", plan: "Comprehensive", aid_no: "DH-4523891", icd10: ["J45", "E11"], allergies: ["Penicillin"], last_visit: "2025-04-20", balance: 1250, status: "active" },
+  { id: 2, name: "Nomsa Dlamini", dob: "1982-07-22", id_no: "8207221234083", gender: "Female", phone: "082 987 6543", medical_aid: "Bonitas", plan: "BonStart", aid_no: "BON-77334", icd10: ["K21", "F32"], allergies: [], last_visit: "2025-04-28", balance: 0, status: "active" },
+  { id: 3, name: "Pieter van der Merwe", dob: "1955-11-05", id_no: "5511055512089", gender: "Male", phone: "083 456 7890", medical_aid: "Medihelp", plan: "Necesse", aid_no: "MH-19283", icd10: ["I10", "E78", "N18"], allergies: ["Sulfonamides", "Aspirin"], last_visit: "2025-03-15", balance: 3400, status: "overdue" },
+  { id: 4, name: "Ayesha Patel", dob: "1991-02-28", id_no: "9102284567086", gender: "Female", phone: "076 321 0987", medical_aid: "None", plan: "Self-pay", aid_no: "—", icd10: ["O26"], allergies: [], last_visit: "2025-04-30", balance: 850, status: "active" },
+  { id: 5, name: "Lungelo Cele", dob: "2008-09-17", id_no: "0809175678023", gender: "Male", phone: "061 111 2222", medical_aid: "GEMS", plan: "Beryl", aid_no: "GEMS-55123", icd10: ["J30", "L20"], allergies: ["Latex"], last_visit: "2025-04-10", balance: 0, status: "active" },
 ];
 
-const FREE_LIMIT = 500;
+const MOCK_BILLING = [
+  { id: "INV-2025-0041", patient: "Thabo Nkosi", date: "2025-04-20", items: [{ code: "0190", desc: "Consultation (complex)", amount: 980 }, { code: "3615", desc: "ECG 12-lead", amount: 420 }], total: 1400, paid: 150, aid: "Discovery Health", status: "partial" },
+  { id: "INV-2025-0040", patient: "Nomsa Dlamini", date: "2025-04-28", items: [{ code: "0190", desc: "Consultation (moderate)", amount: 680 }], total: 680, paid: 680, aid: "Bonitas", status: "paid" },
+  { id: "INV-2025-0039", patient: "Ayesha Patel", date: "2025-04-30", items: [{ code: "0190", desc: "Antenatal consultation", amount: 720 }, { code: "4271", desc: "Ultrasound obstetric", amount: 1200 }], total: 1920, paid: 1070, aid: "Self-pay", status: "partial" },
+  { id: "INV-2025-0038", patient: "Pieter van der Merwe", date: "2025-03-15", items: [{ code: "0190", desc: "Consultation (complex)", amount: 980 }, { code: "3601", desc: "Full blood count", amount: 280 }, { code: "3604", desc: "Lipogram", amount: 320 }], total: 1580, paid: 0, aid: "Medihelp", status: "unpaid" },
+];
 
-function userBubbleStyle(color) {
-return { maxWidth: "72%", padding: "12px 16px", borderRadius: "20px 20px 4px 20px", background: color, color: "#fff", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" };
-}
-var aiBubbleStyle = { maxWidth: "72%", padding: "12px 16px", borderRadius: "20px 20px 20px 4px", background: "#fff", border: "1px solid #e2e8f0", color: "#1e293b", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" };
+const MOCK_FOLLOWUPS = [
+  { id: 1, patient: "Thabo Nkosi", date: "2025-05-10", type: "Asthma review", priority: "routine", notes: "Check spirometry + controller adherence", done: false },
+  { id: 2, patient: "Pieter van der Merwe", date: "2025-05-07", type: "CKD + HTN follow-up", priority: "urgent", notes: "Repeat creatinine, review BP meds. Pt had BP 165/105 at last visit.", done: false },
+  { id: 3, patient: "Nomsa Dlamini", date: "2025-05-12", type: "Mood disorder review", priority: "routine", notes: "PHQ-9 follow up. On sertraline 50mg.", done: false },
+  { id: 4, patient: "Ayesha Patel", date: "2025-05-08", type: "28-week antenatal", priority: "routine", notes: "GDM screen results, OGTT scheduled.", done: false },
+  { id: 5, patient: "Lungelo Cele", date: "2025-05-14", type: "Allergy review", priority: "routine", notes: "Consider referral to allergist. Parents concerned re school camp (latex exposure).", done: false },
+];
 
-function getDaysUntilFollowUp(lastVisit, followUpDays) {
-var last = new Date(lastVisit);
-var due = new Date(last.getTime() + followUpDays * 24 * 60 * 60 * 1000);
-return Math.ceil((due - new Date()) / (24 * 60 * 60 * 1000));
-}
+const PROTOCOLS = [
+  { id: 1, title: "SA Hypertension Guideline 2024", category: "Cardiology", summary: "Step-therapy: ACE-I or ARB first-line. Add CCB second. Thiazide third. Target <130/80 for most adults, <140/90 if CKD+proteinuria. Lifestyle mod essential.", tags: ["HTN", "Cardiovascular", "SAJHM"] },
+  { id: 2, title: "SAMF Antibiotic Guidelines", category: "Infectious Disease", summary: "Community-acquired pneumonia (non-severe): Amoxicillin 1g TDS 5 days. Penicillin allergy: Doxycycline 100mg BD 5 days. Severe: Refer/admit.", tags: ["Antibiotics", "Respiratory", "Stewardship"] },
+  { id: 3, title: "DoH Diabetes Type 2 Protocol", category: "Endocrinology", summary: "First-line: Metformin + lifestyle. Add SGLT2i (empagliflozin) if CVD/CKD. GLP-1 RA if obesity dominant. Insulin if HbA1c >10% or symptomatic hyperglycaemia.", tags: ["Diabetes", "T2DM", "NHI"] },
+  { id: 4, title: "PMTCT Protocol (2024)", category: "HIV / PMTCT", summary: "All pregnant women ART regardless of CD4. TLD (TDF+3TC+DTG) preferred. Neonatal NVP for 6 weeks. Early infant diagnosis at 6 weeks.", tags: ["HIV", "Pregnancy", "PMTCT"] },
+  { id: 5, title: "IMCI — Under 5 Respiratory Illness", category: "Paediatrics", summary: "Classify: severe pneumonia (admit + IV amox), non-severe pneumonia (oral amox), no pneumonia (cough/cold — no antibiotic). Count RR, look for chest indrawing.", tags: ["Paediatrics", "Respiratory", "IMCI"] },
+];
 
-function formatCurrency(amount) {
-return "R " + parseFloat(amount || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-function getMonthName(monthIndex) {
-var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-return months[monthIndex];
-}
-
-var emptyPatient = {
-full_name: "", age: "", gender: "", phone: "", id_number: "",
-payment_type: "cash", medical_aid_name: "", medical_aid_number: "",
-chronic_conditions: "", current_medications: "", allergies: "",
-last_visit: "", last_treatment: "", follow_up_days: 14, clinical_notes: ""
+const ICD10_LOOKUP = {
+  J45: "Asthma", E11: "Type 2 Diabetes Mellitus", K21: "GORD", F32: "Depressive Episode",
+  I10: "Essential Hypertension", E78: "Hyperlipidaemia", N18: "Chronic Kidney Disease",
+  O26: "Antenatal Care", J30: "Allergic Rhinitis", L20: "Atopic Dermatitis",
 };
 
-var emptyInvoice = {
-patient_id: "", consultation_date: new Date().toISOString().split("T")[0],
-reason: "", icd10_code: "", icd10_description: "", fee: "",
-payment_type: "cash", notes: "", due_date: ""
+// ─── Utility ──────────────────────────────────────────────────────────────────
+const fmt = (n) => `R ${Number(n).toLocaleString("en-ZA", { minimumFractionDigits: 2 })}`;
+const today = () => new Date().toISOString().slice(0, 10);
+const age = (dob) => {
+  const d = new Date(dob), now = new Date();
+  let a = now.getFullYear() - d.getFullYear();
+  if (now < new Date(now.getFullYear(), d.getMonth(), d.getDate())) a--;
+  return a;
 };
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const S = {
+  app: { fontFamily: "'Sora', 'DM Sans', sans-serif", display: "flex", height: "100vh", background: C.slate50, color: C.slate900, overflow: "hidden" },
+  sidebar: { width: 220, background: C.teal900, display: "flex", flexDirection: "column", flexShrink: 0 },
+  sidebarLogo: { padding: "28px 20px 20px", borderBottom: `1px solid ${C.teal800}` },
+  sidebarLogoText: { fontSize: 20, fontWeight: 700, color: C.white, letterSpacing: "-0.5px" },
+  sidebarSub: { fontSize: 11, color: C.teal200, marginTop: 2, letterSpacing: "0.04em" },
+  navItem: (active) => ({ display: "flex", alignItems: "center", gap: 10, padding: "11px 20px", cursor: "pointer", background: active ? C.teal800 : "transparent", color: active ? C.white : C.teal100, fontSize: 13.5, fontWeight: active ? 600 : 400, borderLeft: active ? `3px solid ${C.teal200}` : "3px solid transparent", transition: "all 0.15s", borderRadius: "0 6px 6px 0", marginRight: 8 }),
+  main: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" },
+  topbar: { background: C.white, borderBottom: `1px solid ${C.slate200}`, padding: "0 28px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 },
+  content: { flex: 1, overflow: "auto", padding: "28px 28px" },
+  card: { background: C.white, borderRadius: 12, border: `1px solid ${C.slate200}`, padding: "20px 24px", marginBottom: 20 },
+  cardTitle: { fontSize: 15, fontWeight: 700, color: C.slate800, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 },
+  badge: (color) => ({ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: color === "green" ? C.teal50 : color === "red" ? C.red100 : color === "amber" ? C.amber100 : C.blue100, color: color === "green" ? C.teal600 : color === "red" ? C.red500 : color === "amber" ? "#92400e" : C.blue500 }),
+  btn: (variant = "primary") => ({ cursor: "pointer", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 600, background: variant === "primary" ? C.teal600 : variant === "outline" ? C.white : variant === "danger" ? C.red500 : C.slate100, color: variant === "primary" ? C.white : variant === "outline" ? C.teal600 : variant === "danger" ? C.white : C.slate700, border: variant === "outline" ? `1.5px solid ${C.teal400}` : "none", transition: "opacity 0.15s" }),
+  input: { border: `1px solid ${C.slate200}`, borderRadius: 8, padding: "9px 13px", fontSize: 13.5, width: "100%", outline: "none", background: C.white, color: C.slate800, boxSizing: "border-box" },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 },
+  th: { textAlign: "left", padding: "10px 14px", fontSize: 11.5, fontWeight: 700, color: C.slate500, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1.5px solid ${C.slate200}`, background: C.slate50 },
+  td: { padding: "12px 14px", borderBottom: `1px solid ${C.slate100}`, color: C.slate700, verticalAlign: "middle" },
+  statCard: { background: C.white, borderRadius: 12, border: `1px solid ${C.slate200}`, padding: "18px 22px" },
+  statLabel: { fontSize: 12, color: C.slate500, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 },
+  statVal: { fontSize: 26, fontWeight: 800, color: C.slate900 },
+  statSub: { fontSize: 12, color: C.teal600, marginTop: 4, fontWeight: 500 },
+  sectionGrid: (cols) => ({ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 16, marginBottom: 24 }),
+  aiBox: { background: "linear-gradient(135deg, #E1F5EE 0%, #e0f2fe 100%)", border: `1.5px solid ${C.teal200}`, borderRadius: 12, padding: "18px 22px", marginBottom: 20 },
+  voiceBtn: (recording) => ({ width: 52, height: 52, borderRadius: "50%", background: recording ? C.red500 : C.teal600, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.white, fontSize: 22, flexShrink: 0, boxShadow: recording ? `0 0 0 6px ${C.red100}` : "none", transition: "all 0.2s" }),
+  modal: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)" },
+  modalBox: { background: C.white, borderRadius: 16, padding: "32px 36px", width: 580, maxHeight: "85vh", overflow: "auto", boxShadow: "0 25px 60px rgba(0,0,0,0.15)" },
+};
+
+// ─── Subcomponents ────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }) {
+  const map = { paid: ["green", "Paid"], partial: ["amber", "Partial"], unpaid: ["red", "Unpaid"], overdue: ["red", "Overdue"], active: ["green", "Active"], routine: ["green", "Routine"], urgent: ["red", "Urgent"] };
+  const [color, label] = map[status] || ["green", status];
+  return <span style={S.badge(color)}>{label}</span>;
+}
+
+function Avatar({ name, size = 36 }) {
+  const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("");
+  const hue = name.charCodeAt(0) % 6;
+  const colors = [[C.teal800, C.teal50], ["#1e3a8a", C.blue50], ["#7c3aed", "#ede9fe"], ["#9d174d", "#fce7f3"], ["#92400e", C.amber100], [C.teal800, C.teal50]];
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", background: colors[hue][1], color: colors[hue][0], display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.33, fontWeight: 700, flexShrink: 0 }}>
+      {initials}
+    </div>
+  );
+}
+
+// ─── AI Suggester (calls Anthropic API) ───────────────────────────────────────
+function AISuggester({ context }) {
+  const [prompt, setPrompt] = useState(context || "");
+  const [response, setResponse] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const ask = async () => {
+    if (!prompt.trim()) return;
+    setLoading(true);
+    setResponse("");
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: `You are PLASMED-AI, a clinical decision support assistant embedded in a South African GP practice management app. 
+You are knowledgeable about: SA DoH guidelines, SAMF drug formulary, ICD-10 AM coding, Discovery/Bonitas/Medihelp medical aid schemes, PHC protocols, IMCI, PMTCT, NHI context. 
+Respond in concise clinical language. Use bullet points for differential diagnoses and management steps. 
+Always flag red-flag symptoms. Mention SA-specific formulary/funding context where relevant.
+Keep responses to 300 words max. Never replace clinical judgment.`,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await res.json();
+      const text = data.content?.map(b => b.text || "").join("") || "No response.";
+      setResponse(text);
+    } catch (e) {
+      setResponse("⚠️ Could not reach AI service. Please check your connection.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={S.aiBox}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <div style={{ width: 32, height: 32, borderRadius: 8, background: C.teal600, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, fontSize: 16 }}>⚕</div>
+        <span style={{ fontSize: 15, fontWeight: 700, color: C.teal900 }}>PLASMED-AI Clinical Suggester</span>
+        <span style={{ marginLeft: "auto", ...S.badge("green") }}>Claude Sonnet</span>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+        <textarea
+          style={{ ...S.input, height: 72, resize: "vertical", fontFamily: "inherit" }}
+          placeholder="e.g. '55yo male, BP 165/105, CKD stage 3, on amlodipine 5mg — next step?' or 'ICD-10 code for gestational hypertension'"
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && e.ctrlKey && ask()}
+        />
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <button style={S.btn("primary")} onClick={ask} disabled={loading}>
+          {loading ? "Thinking…" : "Ask AI ↵"}
+        </button>
+        {["Differentials for chest pain SA adult", "Antibiotic for CAP (non-severe)", "SGLT2i funding criteria Discovery"].map(q => (
+          <button key={q} style={{ ...S.btn("outline"), fontSize: 12, padding: "7px 12px" }} onClick={() => { setPrompt(q); }}>
+            {q}
+          </button>
+        ))}
+      </div>
+      {loading && (
+        <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 10, color: C.teal600, fontSize: 13 }}>
+          <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${C.teal200}`, borderTopColor: C.teal600, animation: "spin 0.8s linear infinite" }} />
+          Analysing clinical context…
+        </div>
+      )}
+      {response && (
+        <div style={{ marginTop: 18, background: C.white, borderRadius: 10, padding: "16px 18px", border: `1px solid ${C.teal100}`, fontSize: 13.5, lineHeight: 1.7, color: C.slate800, whiteSpace: "pre-wrap" }}>
+          {response}
+        </div>
+      )}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+// ─── Voice to Note ────────────────────────────────────────────────────────────
+function VoiceToNote() {
+  const [recording, setRecording] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [soapNote, setSoapNote] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("idle");
+  const recRef = useRef(null);
+  const chunksRef = useRef([]);
+
+  const startRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      recRef.current = rec;
+      chunksRef.current = [];
+      rec.ondataavailable = e => chunksRef.current.push(e.data);
+      rec.onstop = () => { setStatus("processing"); processAudio(); };
+      rec.start();
+      setRecording(true);
+      setStatus("recording");
+    } catch {
+      setStatus("error");
+      setTranscript("Microphone access denied. Please type notes below.");
+    }
+  };
+
+  const stopRec = () => {
+    recRef.current?.stop();
+    recRef.current?.stream?.getTracks().forEach(t => t.stop());
+    setRecording(false);
+  };
+
+  const processAudio = async () => {
+    // For demo: since we can't do server-side audio transcription, simulate with a typed note
+    setStatus("idle");
+    setTranscript("[Transcription demo] Patient complains of 3-day history of productive cough, fever 38.5°C, right-sided pleuritic chest pain. No haemoptysis. PMH: non-smoker. On no meds. O/E: RR 20, SpO2 96% RA, right basal crackles.");
+  };
+
+  const generateSOAP = async () => {
+    if (!transcript.trim()) return;
+    setLoading(true);
+    setSoapNote("");
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: "You are a medical scribe for a South African GP. Convert the transcribed consultation note into a structured SOAP note. Include: S (Subjective), O (Objective), A (Assessment with ICD-10 codes), P (Plan referencing SA formulary/SAMF). Be clinical and concise. Do NOT invent information not in the transcript.",
+          messages: [{ role: "user", content: `Convert this consultation note to SOAP format:\n\n${transcript}` }],
+        }),
+      });
+      const data = await res.json();
+      setSoapNote(data.content?.map(b => b.text || "").join("") || "Could not generate note.");
+    } catch {
+      setSoapNote("⚠️ AI service unavailable.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={S.card}>
+      <div style={S.cardTitle}>🎙 Voice-to-Note</div>
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 16 }}>
+        <button style={S.voiceBtn(recording)} onClick={recording ? stopRec : startRec} title={recording ? "Stop recording" : "Start recording"}>
+          {recording ? "⏹" : "🎤"}
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: recording ? C.red500 : C.slate600, marginBottom: 4 }}>
+            {recording ? "● Recording… speak clearly" : status === "processing" ? "⌛ Processing audio…" : "Click mic to start, or type below"}
+          </div>
+          <textarea
+            style={{ ...S.input, height: 100, resize: "vertical", fontFamily: "inherit" }}
+            placeholder="Consultation notes appear here after recording, or type manually…"
+            value={transcript}
+            onChange={e => setTranscript(e.target.value)}
+          />
+        </div>
+      </div>
+      <button style={S.btn("primary")} onClick={generateSOAP} disabled={loading || !transcript.trim()}>
+        {loading ? "Generating SOAP…" : "Generate SOAP Note with AI"}
+      </button>
+      {soapNote && (
+        <div style={{ marginTop: 18, background: C.slate50, borderRadius: 10, padding: "16px 18px", border: `1px solid ${C.slate200}`, fontSize: 13.5, lineHeight: 1.75, whiteSpace: "pre-wrap", fontFamily: "'IBM Plex Mono', monospace", color: C.slate800 }}>
+          {soapNote}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+function Dashboard({ setTab, setSelectedPatient }) {
+  const totalBilled = MOCK_BILLING.reduce((s, i) => s + i.total, 0);
+  const totalPaid = MOCK_BILLING.reduce((s, i) => s + i.paid, 0);
+  const totalOutstanding = totalBilled - totalPaid;
+  const urgentFollowups = MOCK_FOLLOWUPS.filter(f => f.priority === "urgent" && !f.done).length;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: C.slate900, margin: 0 }}>Good morning, Dr. Singh 👋</h1>
+        <p style={{ color: C.slate500, fontSize: 14, marginTop: 4 }}>Wednesday, 7 May 2025 · Durban, KZN</p>
+      </div>
+
+      <div style={S.sectionGrid(4)}>
+        {[
+          { label: "Today's patients", val: "5", sub: "2 confirmed, 3 walk-in", icon: "👤" },
+          { label: "Outstanding billing", val: fmt(totalOutstanding), sub: "Across 3 invoices", icon: "💳" },
+          { label: "Urgent follow-ups", val: urgentFollowups, sub: "Require attention today", icon: "🔴" },
+          { label: "This month's revenue", val: fmt(totalBilled), sub: `${Math.round(totalPaid / totalBilled * 100)}% collected`, icon: "📈" },
+        ].map(s => (
+          <div key={s.label} style={S.statCard}>
+            <div style={{ fontSize: 22, marginBottom: 8 }}>{s.icon}</div>
+            <div style={S.statLabel}>{s.label}</div>
+            <div style={S.statVal}>{s.val}</div>
+            <div style={S.statSub}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+        <div style={S.card}>
+          <div style={S.cardTitle}>📅 Today's Follow-ups</div>
+          {MOCK_FOLLOWUPS.slice(0, 3).map(f => (
+            <div key={f.id} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 0", borderBottom: `1px solid ${C.slate100}` }}>
+              <Avatar name={f.patient} size={34} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 13.5, color: C.slate800 }}>{f.patient}</div>
+                <div style={{ fontSize: 12.5, color: C.slate500 }}>{f.type}</div>
+              </div>
+              <StatusBadge status={f.priority} />
+            </div>
+          ))}
+          <button style={{ ...S.btn("outline"), marginTop: 12, width: "100%", fontSize: 12 }} onClick={() => setTab("followups")}>View all follow-ups →</button>
+        </div>
+
+        <div style={S.card}>
+          <div style={S.cardTitle}>💳 Recent Invoices</div>
+          {MOCK_BILLING.slice(0, 3).map(inv => (
+            <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.slate100}` }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13.5, color: C.slate800 }}>{inv.patient}</div>
+                <div style={{ fontSize: 12, color: C.slate500 }}>{inv.id} · {inv.date}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{fmt(inv.total)}</div>
+                <StatusBadge status={inv.status} />
+              </div>
+            </div>
+          ))}
+          <button style={{ ...S.btn("outline"), marginTop: 12, width: "100%", fontSize: 12 }} onClick={() => setTab("billing")}>View all invoices →</button>
+        </div>
+      </div>
+
+      <AISuggester context="" />
+    </div>
+  );
+}
+
+// ─── Patients ─────────────────────────────────────────────────────────────────
+function Patients({ setSelectedPatient, setTab }) {
+  const [search, setSearch] = useState("");
+  const filtered = MOCK_PATIENTS.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.id_no.includes(search));
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Patient Profiles</h2>
+        <button style={S.btn("primary")}>+ New Patient</button>
+      </div>
+      <input style={{ ...S.input, marginBottom: 16, maxWidth: 400 }} placeholder="Search by name or ID number…" value={search} onChange={e => setSearch(e.target.value)} />
+      <div style={S.card}>
+        <table style={S.table}>
+          <thead>
+            <tr>
+              {["Patient", "DOB / Age", "Medical Aid", "ICD-10", "Last Visit", "Balance", ""].map(h => (
+                <th key={h} style={S.th}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(p => (
+              <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => { setSelectedPatient(p); setTab("patientdetail"); }}>
+                <td style={S.td}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Avatar name={p.name} size={34} />
+                    <div>
+                      <div style={{ fontWeight: 600, color: C.slate800 }}>{p.name}</div>
+                      <div style={{ fontSize: 12, color: C.slate400 }}>{p.id_no}</div>
+                    </div>
+                  </div>
+                </td>
+                <td style={S.td}><div>{new Date(p.dob).toLocaleDateString("en-ZA")}</div><div style={{ fontSize: 12, color: C.slate400 }}>{age(p.dob)} yrs</div></td>
+                <td style={S.td}><div style={{ fontWeight: 500 }}>{p.medical_aid}</div><div style={{ fontSize: 12, color: C.slate400 }}>{p.plan}</div></td>
+                <td style={S.td}>{p.icd10.map(c => <span key={c} style={{ ...S.badge("green"), marginRight: 4, display: "inline-block" }}>{c}</span>)}</td>
+                <td style={S.td}>{p.last_visit}</td>
+                <td style={S.td}><span style={{ fontWeight: 700, color: p.balance > 0 ? C.red500 : C.teal600 }}>{fmt(p.balance)}</span></td>
+                <td style={S.td}><button style={{ ...S.btn("outline"), padding: "5px 12px", fontSize: 12 }}>View →</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Patient Detail ───────────────────────────────────────────────────────────
+function PatientDetail({ patient, setTab }) {
+  const [aiContext, setAiContext] = useState(`Patient: ${patient.name}, ${age(patient.dob)}yo ${patient.gender}. ICD-10: ${patient.icd10.join(", ")} (${patient.icd10.map(c => ICD10_LOOKUP[c] || c).join(", ")}). Allergies: ${patient.allergies.join(", ") || "NKDA"}. Medical aid: ${patient.medical_aid} ${patient.plan}.`);
+
+  return (
+    <div>
+      <button style={{ ...S.btn("outline"), marginBottom: 18, fontSize: 13 }} onClick={() => setTab("patients")}>← Back to patients</button>
+      <div style={S.card}>
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+          <Avatar name={patient.name} size={64} />
+          <div style={{ flex: 1 }}>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{patient.name}</h2>
+            <div style={{ color: C.slate500, fontSize: 13.5, marginTop: 4 }}>{patient.id_no} · {age(patient.dob)} years · {patient.gender}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
+              {[
+                ["📞", patient.phone],
+                ["🏥", `${patient.medical_aid} — ${patient.plan}`],
+                ["🔑", `Aid no: ${patient.aid_no}`],
+                ["📅", `Last visit: ${patient.last_visit}`],
+              ].map(([icon, val]) => (
+                <span key={val} style={{ fontSize: 13, color: C.slate600, background: C.slate50, padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.slate200}` }}>{icon} {val}</span>
+              ))}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={S.statLabel}>Balance</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: patient.balance > 0 ? C.red500 : C.teal600 }}>{fmt(patient.balance)}</div>
+            <StatusBadge status={patient.status} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 22, paddingTop: 20, borderTop: `1px solid ${C.slate100}` }}>
+          <div>
+            <div style={S.statLabel}>Active diagnoses (ICD-10)</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {patient.icd10.map(c => (
+                <span key={c} style={{ background: C.teal50, color: C.teal800, border: `1px solid ${C.teal200}`, padding: "4px 10px", borderRadius: 6, fontSize: 13, fontWeight: 600 }}>
+                  {c} — {ICD10_LOOKUP[c] || "Unknown"}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={S.statLabel}>⚠️ Allergies</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {patient.allergies.length === 0
+                ? <span style={{ color: C.teal600, fontWeight: 600, fontSize: 13 }}>NKDA — No known drug allergies</span>
+                : patient.allergies.map(a => (
+                  <span key={a} style={{ background: C.red100, color: C.red500, border: `1px solid #fca5a5`, padding: "4px 10px", borderRadius: 6, fontSize: 13, fontWeight: 600 }}>{a}</span>
+                ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <AISuggester context={aiContext} />
+      <VoiceToNote />
+    </div>
+  );
+}
+
+// ─── Billing ──────────────────────────────────────────────────────────────────
+function Billing() {
+  const [selected, setSelected] = useState(null);
+  const totalBilled = MOCK_BILLING.reduce((s, i) => s + i.total, 0);
+  const totalPaid = MOCK_BILLING.reduce((s, i) => s + i.paid, 0);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Billing Dashboard</h2>
+        <button style={S.btn("primary")}>+ New Invoice</button>
+      </div>
+
+      <div style={S.sectionGrid(4)}>
+        {[
+          { label: "Total billed", val: fmt(totalBilled), sub: `${MOCK_BILLING.length} invoices`, color: C.slate900 },
+          { label: "Collected", val: fmt(totalPaid), sub: `${Math.round(totalPaid / totalBilled * 100)}% collection rate`, color: C.teal600 },
+          { label: "Outstanding", val: fmt(totalBilled - totalPaid), sub: "Pending payment", color: C.red500 },
+          { label: "Medical aid", val: fmt(totalBilled * 0.72), sub: "72% scheme-covered", color: C.blue500 },
+        ].map(s => (
+          <div key={s.label} style={S.statCard}>
+            <div style={S.statLabel}>{s.label}</div>
+            <div style={{ ...S.statVal, color: s.color }}>{s.val}</div>
+            <div style={S.statSub}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={S.card}>
+        <div style={S.cardTitle}>📄 Invoices</div>
+        <table style={S.table}>
+          <thead>
+            <tr>{["Invoice", "Patient", "Date", "Medical Aid", "Total", "Paid", "Balance", "Status", ""].map(h => <th key={h} style={S.th}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {MOCK_BILLING.map(inv => (
+              <tr key={inv.id}>
+                <td style={{ ...S.td, fontWeight: 600, color: C.teal700 }}>{inv.id}</td>
+                <td style={S.td}>{inv.patient}</td>
+                <td style={S.td}>{inv.date}</td>
+                <td style={S.td}>{inv.aid}</td>
+                <td style={{ ...S.td, fontWeight: 600 }}>{fmt(inv.total)}</td>
+                <td style={{ ...S.td, color: C.teal600, fontWeight: 600 }}>{fmt(inv.paid)}</td>
+                <td style={{ ...S.td, color: inv.total - inv.paid > 0 ? C.red500 : C.teal600, fontWeight: 700 }}>{fmt(inv.total - inv.paid)}</td>
+                <td style={S.td}><StatusBadge status={inv.status} /></td>
+                <td style={S.td}>
+                  <button style={{ ...S.btn("outline"), padding: "5px 10px", fontSize: 12 }} onClick={() => setSelected(inv)}>Details</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {selected && (
+        <div style={S.modal} onClick={() => setSelected(null)}>
+          <div style={S.modalBox} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{selected.id}</h3>
+              <button style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: C.slate500 }} onClick={() => setSelected(null)}>×</button>
+            </div>
+            <div style={{ color: C.slate600, fontSize: 13.5, marginBottom: 18 }}>{selected.patient} · {selected.date} · {selected.aid}</div>
+            <table style={S.table}>
+              <thead><tr><th style={S.th}>Code</th><th style={S.th}>Description</th><th style={{ ...S.th, textAlign: "right" }}>Amount</th></tr></thead>
+              <tbody>
+                {selected.items.map(item => (
+                  <tr key={item.code}>
+                    <td style={{ ...S.td, fontWeight: 600, color: C.teal700 }}>{item.code}</td>
+                    <td style={S.td}>{item.desc}</td>
+                    <td style={{ ...S.td, textAlign: "right", fontWeight: 600 }}>{fmt(item.amount)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={2} style={{ ...S.td, fontWeight: 700 }}>Total</td>
+                  <td style={{ ...S.td, textAlign: "right", fontWeight: 800, fontSize: 16 }}>{fmt(selected.total)}</td>
+                </tr>
+                <tr>
+                  <td colSpan={2} style={{ ...S.td, color: C.teal600, fontWeight: 600 }}>Paid</td>
+                  <td style={{ ...S.td, textAlign: "right", color: C.teal600, fontWeight: 700 }}>{fmt(selected.paid)}</td>
+                </tr>
+                <tr>
+                  <td colSpan={2} style={{ ...S.td, color: C.red500, fontWeight: 600 }}>Balance</td>
+                  <td style={{ ...S.td, textAlign: "right", color: C.red500, fontWeight: 800 }}>{fmt(selected.total - selected.paid)}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
+              <button style={S.btn("outline")}>Print</button>
+              <button style={S.btn("primary")}>Record Payment</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Follow-ups ───────────────────────────────────────────────────────────────
+function Followups() {
+  const [items, setItems] = useState(MOCK_FOLLOWUPS);
+  const toggle = (id) => setItems(items.map(f => f.id === id ? { ...f, done: !f.done } : f));
+  const pending = items.filter(f => !f.done);
+  const done = items.filter(f => f.done);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Follow-up Tracker</h2>
+        <button style={S.btn("primary")}>+ Add Follow-up</button>
+      </div>
+
+      {[{ title: "⏳ Pending", list: pending }, { title: "✅ Completed", list: done }].map(group => group.list.length > 0 && (
+        <div key={group.title} style={S.card}>
+          <div style={S.cardTitle}>{group.title} ({group.list.length})</div>
+          {group.list.map(f => (
+            <div key={f.id} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "14px 0", borderBottom: `1px solid ${C.slate100}`, opacity: f.done ? 0.55 : 1 }}>
+              <input type="checkbox" checked={f.done} onChange={() => toggle(f.id)} style={{ marginTop: 3, accentColor: C.teal600, width: 16, height: 16, cursor: "pointer" }} />
+              <Avatar name={f.patient} size={36} />
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: C.slate800 }}>{f.patient}</span>
+                  <StatusBadge status={f.priority} />
+                  <span style={{ fontSize: 12, color: C.slate400 }}>📅 {f.date}</span>
+                </div>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: C.teal700, marginTop: 3 }}>{f.type}</div>
+                <div style={{ fontSize: 13, color: C.slate500, marginTop: 2 }}>{f.notes}</div>
+              </div>
+              <button style={{ ...S.btn("outline"), padding: "5px 12px", fontSize: 12, flexShrink: 0 }}>View</button>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Protocols ────────────────────────────────────────────────────────────────
+function Protocols() {
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const filtered = PROTOCOLS.filter(p =>
+    p.title.toLowerCase().includes(search.toLowerCase()) ||
+    p.category.toLowerCase().includes(search.toLowerCase()) ||
+    p.tags.some(t => t.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>SA Clinical Protocols</h2>
+      </div>
+      <input style={{ ...S.input, marginBottom: 18, maxWidth: 400 }} placeholder="Search by condition, category or keyword…" value={search} onChange={e => setSearch(e.target.value)} />
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {filtered.map(p => (
+          <div key={p.id} style={{ ...S.card, marginBottom: 0, cursor: "pointer", borderLeft: `4px solid ${C.teal400}` }} onClick={() => setSelected(p)}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.slate800 }}>{p.title}</div>
+              <span style={{ ...S.badge("green"), flexShrink: 0, marginLeft: 10 }}>{p.category}</span>
+            </div>
+            <p style={{ fontSize: 13, color: C.slate600, margin: "0 0 12px", lineHeight: 1.6 }}>{p.summary}</p>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {p.tags.map(t => <span key={t} style={{ fontSize: 11, background: C.slate100, color: C.slate600, padding: "2px 8px", borderRadius: 10 }}>{t}</span>)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {selected && (
+        <div style={S.modal} onClick={() => setSelected(null)}>
+          <div style={S.modalBox} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, lineHeight: 1.3 }}>{selected.title}</h3>
+              <button style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: C.slate500, marginLeft: 16 }} onClick={() => setSelected(null)}>×</button>
+            </div>
+            <span style={{ ...S.badge("green"), marginBottom: 16, display: "inline-block" }}>{selected.category}</span>
+            <p style={{ fontSize: 14, lineHeight: 1.8, color: C.slate700 }}>{selected.summary}</p>
+            <div style={{ marginTop: 16, padding: "14px 16px", background: C.teal50, borderRadius: 8, border: `1px solid ${C.teal100}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.teal800, marginBottom: 6 }}>ASK AI ABOUT THIS PROTOCOL</div>
+              <button style={S.btn("primary")} onClick={() => { setSelected(null); }}>
+                Open in AI Suggester →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+const NAV = [
+  { id: "dashboard", label: "Dashboard", icon: "🏠" },
+  { id: "patients", label: "Patients", icon: "👤" },
+  { id: "billing", label: "Billing", icon: "💳" },
+  { id: "followups", label: "Follow-ups", icon: "📅" },
+  { id: "protocols", label: "Protocols", icon: "📋" },
+  { id: "ai", label: "AI Suggester", icon: "⚕" },
+  { id: "voice", label: "Voice-to-Note", icon: "🎙" },
+];
 
 export default function App() {
-var [session, setSession] = useState(null);
-var [profile, setProfile] = useState(null);
-var [email, setEmail] = useState("");
-var [password, setPassword] = useState("");
-var [authMode, setAuthMode] = useState("login");
-var [authError, setAuthError] = useState("");
-var [specialty, setSpecialty] = useState(null);
-var [activeTab, setActiveTab] = useState("dashboard");
-var [messages, setMessages] = useState([]);
-var [input, setInput] = useState("");
-var [loading, setLoading] = useState(false);
-var [activeMode, setActiveMode] = useState(null);
-var [isRecording, setIsRecording] = useState(false);
-var [transcript, setTranscript] = useState("");
-var [generatedNote, setGeneratedNote] = useState("");
-var [noteLoading, setNoteLoading] = useState(false);
-var [copied, setCopied] = useState(false);
-var [patients, setPatients] = useState([]);
-var [patientsLoading, setPatientsLoading] = useState(false);
-var [newPatient, setNewPatient] = useState(emptyPatient);
-var [selectedPatient, setSelectedPatient] = useState(null);
-var [patientView, setPatientView] = useState("list");
-var [aiReminder, setAiReminder] = useState("");
-var [reminderLoading, setReminderLoading] = useState(false);
-var [searchText, setSearchText] = useState("");
-var [saving, setSaving] = useState(false);
-var [protocols, setProtocols] = useState([]);
-var [protocolsLoading, setProtocolsLoading] = useState(false);
-var [newTrigger, setNewTrigger] = useState("");
-var [newAction, setNewAction] = useState("");
-var [savingProtocol, setSavingProtocol] = useState(false);
-var [suggestions, setSuggestions] = useState([]);
-var [suggestionsLoading, setSuggestionsLoading] = useState(false);
-var [invoices, setInvoices] = useState([]);
-var [invoicesLoading, setInvoicesLoading] = useState(false);
-var [newInvoice, setNewInvoice] = useState(emptyInvoice);
-var [billingView, setBillingView] = useState("list");
-var [savingInvoice, setSavingInvoice] = useState(false);
-var [selectedInvoice, setSelectedInvoice] = useState(null);
-var [markingPaid, setMarkingPaid] = useState(false);
-var recognitionRef = useRef(null);
-var bottomRef = useRef(null);
+  const [tab, setTab] = useState("dashboard");
+  const [selectedPatient, setSelectedPatient] = useState(null);
 
-useEffect(function() {
-supabase.auth.getSession().then(function(res) { setSession(res.data.session); });
-supabase.auth.onAuthStateChange(function(_e, s) { setSession(s); });
-}, []);
+  const renderContent = () => {
+    if (tab === "patientdetail" && selectedPatient) return <PatientDetail patient={selectedPatient} setTab={setTab} />;
+    switch (tab) {
+      case "dashboard": return <Dashboard setTab={setTab} setSelectedPatient={setSelectedPatient} />;
+      case "patients": return <Patients setSelectedPatient={setSelectedPatient} setTab={setTab} />;
+      case "billing": return <Billing />;
+      case "followups": return <Followups />;
+      case "protocols": return <Protocols />;
+      case "ai": return <div><h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 20 }}>AI Clinical Suggester</h2><AISuggester context="" /></div>;
+      case "voice": return <div><h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 20 }}>Voice-to-Note</h2><VoiceToNote /></div>;
+      default: return null;
+    }
+  };
 
-useEffect(function() {
-if (session) { fetchProfile(); fetchPatients(); fetchProtocols(); fetchInvoices(); }
-}, [session]);
+  return (
+    <div style={S.app}>
+      <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
 
-useEffect(function() {
-if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
-}, [messages, loading]);
+      {/* Sidebar */}
+      <div style={S.sidebar}>
+        <div style={S.sidebarLogo}>
+          <div style={S.sidebarLogoText}>PLASMED</div>
+          <div style={S.sidebarSub}>SA Practice Management</div>
+        </div>
+        <nav style={{ flex: 1, paddingTop: 12 }}>
+          {NAV.map(n => (
+            <div key={n.id} style={S.navItem(tab === n.id || (tab === "patientdetail" && n.id === "patients"))} onClick={() => setTab(n.id)}>
+              <span>{n.icon}</span>
+              <span>{n.label}</span>
+            </div>
+          ))}
+        </nav>
+        <div style={{ padding: "16px 20px", borderTop: `1px solid ${C.teal800}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.teal600, display: "flex", alignItems: "center", justifyContent: "center", color: C.white, fontWeight: 700, fontSize: 14 }}>RS</div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.white }}>Dr. R. Singh</div>
+              <div style={{ fontSize: 11, color: C.teal200 }}>GP · Durban, KZN</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-async function fetchProfile() {
-var res = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-setProfile(res.data);
-}
-
-async function fetchPatients() {
-setPatientsLoading(true);
-var res = await supabase.from("patients").select("*").eq("doctor_id", session.user.id).order("full_name");
-if (res.data) setPatients(res.data);
-setPatientsLoading(false);
-}
-
-async function fetchProtocols() {
-setProtocolsLoading(true);
-var res = await supabase.from("protocols").select("*").eq("doctor_id", session.user.id).order("created_at");
-if (res.data) setProtocols(res.data);
-setProtocolsLoading(false);
-}
-
-async function fetchInvoices() {
-setInvoicesLoading(true);
-var res = await supabase.from("invoices").select("*, patients(full_name, phone, medical_aid_name, medical_aid_number)").eq("doctor_id", session.user.id).order("created_at", { ascending: false });
-if (res.data) setInvoices(res.data);
-setInvoicesLoading(false);
-}
-
-async function savePatient() {
-if (!newPatient.full_name || !newPatient.last_visit) return;
-setSaving(true);
-var payload = Object.assign({}, newPatient, {
-doctor_id: session.user.id,
-age: parseInt(newPatient.age) || null,
-follow_up_days: parseInt(newPatient.follow_up_days) || 14
-});
-await supabase.from("patients").insert([payload]);
-await fetchPatients();
-setNewPatient(emptyPatient);
-setPatientView("list");
-setSaving(false);
-}
-
-async function deletePatient(id) {
-if (!window.confirm("Delete this patient?")) return;
-await supabase.from("patients").delete().eq("id", id);
-await fetchPatients();
-setSelectedPatient(null);
-setPatientView("list");
-}
-
-async function saveProtocol() {
-if (!newTrigger.trim() || !newAction.trim()) return;
-setSavingProtocol(true);
-await supabase.from("protocols").insert([{
-doctor_id: session.user.id,
-trigger_condition: newTrigger.trim(),
-suggested_action: newAction.trim(),
-specialty: specialty ? specialty.id : "general"
-}]);
-await fetchProtocols();
-setNewTrigger(""); setNewAction("");
-setSavingProtocol(false);
-}
-
-async function deleteProtocol(id) {
-await supabase.from("protocols").delete().eq("id", id);
-await fetchProtocols();
-}
-
-async function toggleProtocol(id, active) {
-await supabase.from("protocols").update({ active: !active }).eq("id", id);
-await fetchProtocols();
-}
-
-async function saveInvoice() {
-if (!newInvoice.patient_id || !newInvoice.fee) return;
-setSavingInvoice(true);
-var patient = patients.find(function(p) { return p.id === newInvoice.patient_id; });
-var invNumber = "INV-" + Date.now().toString().slice(-6);
-var dueDate = newInvoice.due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-var consRes = await supabase.from("consultations").insert([{
-doctor_id: session.user.id,
-patient_id: newInvoice.patient_id,
-consultation_date: newInvoice.consultation_date,
-reason: newInvoice.reason,
-icd10_code: newInvoice.icd10_code,
-icd10_description: newInvoice.icd10_description,
-fee: parseFloat(newInvoice.fee),
-notes: newInvoice.notes
-}]).select();
-if (consRes.data && consRes.data[0]) {
-await supabase.from("invoices").insert([{
-doctor_id: session.user.id,
-patient_id: newInvoice.patient_id,
-consultation_id: consRes.data[0].id,
-invoice_number: invNumber,
-invoice_date: newInvoice.consultation_date,
-due_date: dueDate,
-payment_type: patient ? patient.payment_type : newInvoice.payment_type,
-medical_aid_name: patient ? patient.medical_aid_name : "",
-medical_aid_number: patient ? patient.medical_aid_number : "",
-amount_due: parseFloat(newInvoice.fee),
-amount_paid: 0,
-status: "unpaid",
-notes: newInvoice.notes
-}]);
-}
-await fetchInvoices();
-setNewInvoice(emptyInvoice);
-setBillingView("list");
-setSavingInvoice(false);
-}
-
-async function markAsPaid(invoice) {
-setMarkingPaid(true);
-await supabase.from("invoices").update({ status: "paid", amount_paid: invoice.amount_due }).eq("id", invoice.id);
-await supabase.from("payments").insert([{
-doctor_id: session.user.id,
-invoice_id: invoice.id,
-patient_id: invoice.patient_id,
-amount: invoice.amount_due,
-payment_date: new Date().toISOString().split("T")[0],
-payment_method: invoice.payment_type,
-reference: invoice.invoice_number
-}]);
-await fetchInvoices();
-setMarkingPaid(false);
-setSelectedInvoice(null);
-setBillingView("list");
-}
-
-function printInvoice(invoice) {
-var patient = invoice.patients || {};
-var win = window.open("", "_blank");
-win.document.write(
-"<html><head><title>Invoice " + invoice.invoice_number + "</title>" +
-"<style>body{font-family:Arial,sans-serif;padding:40px;color:#1e293b;} .header{display:flex;justify-content:space-between;margin-bottom:32px;} .logo{font-size:24px;font-weight:800;} .label{font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:4px;} .value{font-size:14px;margin-bottom:12px;} table{width:100%;border-collapse:collapse;margin:24px 0;} th{background:#f8fafc;padding:10px 12px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;} td{padding:12px;border-bottom:1px solid #f1f5f9;font-size:14px;} .total{text-align:right;font-size:18px;font-weight:700;margin-top:16px;} .status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;} .paid{background:#f0fdf4;color:#16a34a;} .unpaid{background:#fef2f2;color:#dc2626;} .footer{margin-top:48px;padding-top:20px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;text-align:center;}</style>" +
-"</head><body>" +
-"<div class='header'><div><div class='logo'>PLAS<span style='color:#2563eb'>MED</span></div><div style='font-size:12px;color:#94a3b8;margin-top:4px'>AI for Medical Practices</div></div>" +
-"<div style='text-align:right'><div style='font-size:20px;font-weight:700;color:#1e293b'>INVOICE</div><div style='font-size:16px;color:#2563eb;font-weight:600'>" + invoice.invoice_number + "</div><span class='status " + invoice.status + "'>" + invoice.status.toUpperCase() + "</span></div></div>" +
-"<div style='display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:32px;'>" +
-"<div><div class='label'>BILLED TO</div><div style='font-size:16px;font-weight:600'>" + (patient.full_name || "—") + "</div><div style='font-size:13px;color:#64748b'>" + (patient.phone || "") + "</div>" +
-(invoice.payment_type === "medical_aid" ? "<div style='font-size:13px;color:#0891b2;margin-top:4px'>Medical Aid: " + (invoice.medical_aid_name || "") + " · " + (invoice.medical_aid_number || "") + "</div>" : "<div style='font-size:13px;color:#16a34a;margin-top:4px'>Cash Patient</div>") + "</div>" +
-"<div><div class='label'>INVOICE DATE</div><div class='value'>" + invoice.invoice_date + "</div><div class='label'>DUE DATE</div><div class='value'>" + (invoice.due_date || "—") + "</div></div></div>" +
-"<table><tr><th>DESCRIPTION</th><th>ICD-10</th><th>AMOUNT</th></tr>" +
-"<tr><td>" + (invoice.notes || "Consultation") + "</td><td>" + (invoice.invoice_number || "—") + "</td><td>R " + parseFloat(invoice.amount_due).toFixed(2) + "</td></tr></table>" +
-"<div class='total'>Total Due: R " + parseFloat(invoice.amount_due).toFixed(2) + "</div>" +
-"<div style='margin-top:8px;text-align:right;font-size:13px;color:" + (invoice.status === "paid" ? "#16a34a" : "#dc2626") + ";font-weight:600'>Amount Paid: R " + parseFloat(invoice.amount_paid || 0).toFixed(2) + " · Outstanding: R " + (parseFloat(invoice.amount_due) - parseFloat(invoice.amount_paid || 0)).toFixed(2) + "</div>" +
-"<div class='footer'>Generated by PLASMED · AI for Medical Practices · plasmed-mocha.vercel.app</div>" +
-"</body></html>"
-);
-win.document.close();
-win.print();
-}
-
-async function runTreatmentSuggester() {
-if (patients.length === 0 || protocols.length === 0) return;
-setSuggestionsLoading(true); setSuggestions([]);
-var activeProtocols = protocols.filter(function(p) { return p.active; });
-var patientSummaries = patients.map(function(p) {
-return "Patient: " + p.full_name + ", Age: " + (p.age || "?") + ", Last treatment: " + (p.last_treatment || "none") + ", Chronic: " + (p.chronic_conditions || "none") + ", Meds: " + (p.current_medications || "none") + ", Notes: " + (p.clinical_notes || "none");
-}).join("\n");
-var protocolSummaries = activeProtocols.map(function(p) { return "IF " + p.trigger_condition + " THEN " + p.suggested_action; }).join("\n");
-var prompt = "You are a clinical AI. Based on these protocols and patients, identify matches and generate specific proactive suggestions.\n\nPROTOCOLS:\n" + protocolSummaries + "\n\nPATIENTS:\n" + patientSummaries + "\n\nFor each match:\nPATIENT: [name]\nSUGGESTION: [action]\nREASON: [why]\n---\n\nOnly include clear matches. Be specific and clinical.";
-try {
-var res = await fetch("/api/chat", {
-method: "POST", headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1500, system: "You are a proactive clinical AI matching patient data to doctor protocols.", messages: [{ role: "user", content: prompt }] }),
-});
-var data = await res.json();
-var text = data.content && data.content[0] ? data.content[0].text : "";
-var blocks = text.split("---").map(function(b) { return b.trim(); }).filter(function(b) { return b.length > 0; });
-var parsed = blocks.map(function(block) {
-var lines = block.split("\n");
-var obj = { patient: "", suggestion: "", reason: "" };
-lines.forEach(function(line) {
-if (line.startsWith("PATIENT:")) obj.patient = line.replace("PATIENT:", "").trim();
-if (line.startsWith("SUGGESTION:")) obj.suggestion = line.replace("SUGGESTION:", "").trim();
-if (line.startsWith("REASON:")) obj.reason = line.replace("REASON:", "").trim();
-});
-return obj;
-}).filter(function(s) { return s.patient && s.suggestion; });
-setSuggestions(parsed);
-} catch(e) { setSuggestions([{ patient: "Error", suggestion: "Connection error.", reason: "" }]); }
-setSuggestionsLoading(false);
-}
-
-async function handleAuth() {
-setAuthError("");
-if (authMode === "login") {
-var r = await supabase.auth.signInWithPassword({ email: email, password: password });
-if (r.error) setAuthError(r.error.message);
-} else {
-var r2 = await supabase.auth.signUp({ email: email, password: password });
-if (r2.error) setAuthError(r2.error.message);
-else setAuthError("Check your email to confirm your account!");
-}
-}
-
-async function handleSignOut() {
-await supabase.auth.signOut();
-setMessages([]); setProfile(null); setSpecialty(null); setActiveMode(null);
-setTranscript(""); setGeneratedNote(""); setPatients([]); setProtocols([]); setInvoices([]);
-}
-
-function selectSpecialty(s) {
-setSpecialty(s); setActiveMode(s.modes[0]); setMessages([]);
-setTranscript(""); setGeneratedNote(""); setActiveTab("dashboard");
-}
-
-function startRecording() {
-var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SR) { alert("Please use Chrome or Edge for voice recording."); return; }
-var rec = new SR();
-rec.continuous = true; rec.interimResults = true; rec.lang = "en-ZA";
-var final = "";
-rec.onresult = function(e) {
-var interim = "";
-for (var i = e.resultIndex; i < e.results.length; i++) {
-if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
-else interim += e.results[i][0].transcript;
-}
-setTranscript(final + interim);
-};
-rec.onerror = function() { setIsRecording(false); };
-rec.onend = function() { setIsRecording(false); };
-recognitionRef.current = rec;
-rec.start();
-setIsRecording(true); setGeneratedNote("");
-}
-
-function stopRecording() {
-if (recognitionRef.current) recognitionRef.current.stop();
-setIsRecording(false);
-}
-
-async function generateNote() {
-if (!transcript.trim()) return;
-setNoteLoading(true); setGeneratedNote("");
-try {
-var res = await fetch("/api/chat", {
-method: "POST", headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, system: specialty.notePrompt, messages: [{ role: "user", content: "Convert this consultation transcript:\n\n" + transcript }] }),
-});
-var data = await res.json();
-setGeneratedNote(data.content && data.content[0] ? data.content[0].text : "Error.");
-} catch(e) { setGeneratedNote("Connection error."); }
-setNoteLoading(false);
-}
-
-function copyText(text) {
-navigator.clipboard.writeText(text);
-setCopied(true);
-setTimeout(function() { setCopied(false); }, 2000);
-}
-
-async function generateReminder(patient) {
-setAiReminder(""); setReminderLoading(true);
-var days = getDaysUntilFollowUp(patient.last_visit, patient.follow_up_days);
-var prompt = "Generate a warm professional SMS follow-up reminder for: " + patient.full_name + ", Age " + patient.age + ", Last treatment: " + patient.last_treatment + " on " + patient.last_visit + ". Notes: " + patient.clinical_notes + ". Follow-up is " + (days < 0 ? Math.abs(days) + " days overdue." : "due in " + days + " days.");
-try {
-var res = await fetch("/api/chat", {
-method: "POST", headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 200, system: "You write short warm professional medical SMS reminders.", messages: [{ role: "user", content: prompt }] }),
-});
-var data = await res.json();
-setAiReminder(data.content && data.content[0] ? data.content[0].text : "Error.");
-} catch(e) { setAiReminder("Connection error."); }
-setReminderLoading(false);
-}
-
-async function sendMessage() {
-if (!input.trim() || loading) return;
-var userMsg = { role: "user", content: input.trim() };
-var newMessages = messages.concat([userMsg]);
-setMessages(newMessages); setInput(""); setLoading(true);
-await supabase.from("profiles").update({ message_count: (profile ? profile.message_count || 0 : 0) + 1 }).eq("id", session.user.id);
-await fetchProfile();
-try {
-var res = await fetch("/api/chat", {
-method: "POST", headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, system: activeMode.prompt, messages: newMessages }),
-});
-var data = await res.json();
-setMessages(newMessages.concat([{ role: "assistant", content: data.content && data.content[0] ? data.content[0].text : "Error." }]));
-} catch(e) { setMessages(newMessages.concat([{ role: "assistant", content: "Connection error." }])); }
-setLoading(false);
-}
-
-var inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#fff", color: "#1e293b" };
-var labelStyle = { fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4, letterSpacing: "0.4px", display: "block" };
-
-// LOGIN
-if (!session) {
-return (
-<div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Segoe UI, sans-serif" }}>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 20, padding: "48px 40px", width: 380, boxShadow: "0 20px 40px rgba(0,0,0,0.08)" }}>
-<div style={{ textAlign: "center", marginBottom: 36 }}>
-<div style={{ fontSize: 28, fontWeight: 800, color: "#0f172a" }}>PLAS<span style={{ color: "#2563eb" }}>MED</span></div>
-<div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>AI for Medical Practices</div>
-<div style={{ width: 40, height: 3, background: "#2563eb", borderRadius: 2, margin: "16px auto 0" }} />
-</div>
-<input value={email} onChange={function(e) { setEmail(e.target.value); }} placeholder="Email address"
-style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 14, marginBottom: 12, boxSizing: "border-box", outline: "none", fontFamily: "inherit" }} />
-<input value={password} onChange={function(e) { setPassword(e.target.value); }} placeholder="Password" type="password"
-onKeyDown={function(e) { if (e.key === "Enter") handleAuth(); }}
-style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 14, marginBottom: 16, boxSizing: "border-box", outline: "none", fontFamily: "inherit" }} />
-{authError && (
-<div style={{ fontSize: 13, marginBottom: 12, textAlign: "center", padding: "8px 12px", borderRadius: 8, color: authError.includes("Check") ? "#16a34a" : "#dc2626", background: authError.includes("Check") ? "#f0fdf4" : "#fef2f2" }}>
-{authError}
-</div>
-)}
-<button onClick={handleAuth} style={{ width: "100%", padding: "13px", borderRadius: 10, border: "none", background: "#2563eb", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", marginBottom: 16, fontFamily: "inherit" }}>
-{authMode === "login" ? "Sign In" : "Create Account"}
-</button>
-<div style={{ textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-{authMode === "login" ? "No account? " : "Have an account? "}
-<span onClick={function() { setAuthMode(authMode === "login" ? "signup" : "login"); }} style={{ color: "#2563eb", cursor: "pointer", fontWeight: 600 }}>
-{authMode === "login" ? "Sign up free" : "Sign in"}
-</span>
-</div>
-<div style={{ marginTop: 28, paddingTop: 20, borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "center", gap: 20 }}>
-{["POPIA Compliant", "SA Doctors", "Secure"].map(function(tag) {
-return (
-<div key={tag} style={{ fontSize: 11, color: "#94a3b8", display: "flex", alignItems: "center", gap: 4 }}>
-<div style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e" }} />
-{tag}
-</div>
-);
-})}
-</div>
-</div>
-</div>
-);
-}
-
-if (!specialty) {
-return (
-<div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "Segoe UI, sans-serif" }}>
-<div style={{ padding: "0 28px", height: 60, borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff" }}>
-<div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>PLAS<span style={{ color: "#2563eb" }}>MED</span></div>
-<button onClick={handleSignOut} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#64748b", padding: "6px 14px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Sign Out</button>
-</div>
-<div style={{ maxWidth: 700, margin: "0 auto", padding: "60px 24px" }}>
-<div style={{ textAlign: "center", marginBottom: 48 }}>
-<div style={{ fontSize: 24, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>Select Your Specialty</div>
-<div style={{ color: "#94a3b8", fontSize: 15 }}>Choose your practice type to load the right AI tools</div>
-</div>
-<div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
-{SPECIALTIES.map(function(s) {
-return (
-<div key={s.id} onClick={function() { selectSpecialty(s); }}
-style={{ background: "#fff", border: "2px solid #e2e8f0", borderRadius: 16, padding: 28, cursor: "pointer", textAlign: "center" }}>
-<div style={{ fontSize: 40, marginBottom: 12 }}>{s.icon}</div>
-<div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>{s.label}</div>
-<div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>{s.description}</div>
-<div style={{ marginTop: 16, padding: "8px 16px", background: s.color + "18", color: s.color, borderRadius: 20, fontSize: 12, fontWeight: 600, display: "inline-block" }}>
-{s.modes.length} AI Modes
-</div>
-</div>
-);
-})}
-</div>
-</div>
-</div>
-);
-}
-
-var overdueCount = patients.filter(function(p) { return p.last_visit && getDaysUntilFollowUp(p.last_visit, p.follow_up_days) < 0; }).length;
-var filteredPatients = patients.filter(function(p) { return !searchText || p.full_name.toLowerCase().includes(searchText.toLowerCase()); });
-var totalRevenue = invoices.reduce(function(sum, inv) { return sum + parseFloat(inv.amount_paid || 0); }, 0);
-var totalOutstanding = invoices.reduce(function(sum, inv) { return sum + (parseFloat(inv.amount_due) - parseFloat(inv.amount_paid || 0)); }, 0);
-var thisMonth = new Date().getMonth();
-var thisYear = new Date().getFullYear();
-var monthlyRevenue = invoices.filter(function(inv) {
-var d = new Date(inv.invoice_date);
-return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
-}).reduce(function(sum, inv) { return sum + parseFloat(inv.amount_paid || 0); }, 0);
-var unpaidCount = invoices.filter(function(inv) { return inv.status === "unpaid"; }).length;
-
-var tabs = [
-{ id: "dashboard", label: "Dashboard", icon: "📊" },
-{ id: "chat", label: "AI Chat", icon: "💬" },
-{ id: "voice", label: "Voice-to-Note", icon: "🎤" },
-{ id: "patients", label: "Patients", icon: "👤" },
-{ id: "followups", label: "Follow-ups", icon: "🔔" },
-{ id: "protocols", label: "My Protocols", icon: "📋" },
-{ id: "suggester", label: "AI Suggester", icon: "💡" },
-{ id: "billing", label: "Billing", icon: "💰" },
-];
-
-return (
-<div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "Segoe UI, sans-serif", display: "flex", flexDirection: "column" }}>
-
-{/* NAVBAR */}
-<div style={{ padding: "0 20px", height: 60, borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff" }}>
-<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-<div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>PLAS<span style={{ color: "#2563eb" }}>MED</span></div>
-<div style={{ width: 1, height: 18, background: "#e2e8f0" }} />
-<div style={{ fontSize: 12, color: "#fff", background: specialty.color, padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>{specialty.icon} {specialty.label}</div>
-<button onClick={function() { setSpecialty(null); }} style={{ fontSize: 12, color: "#94a3b8", background: "none", border: "none", cursor: "pointer" }}>Change</button>
-</div>
-<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-{overdueCount > 0 && (
-<div onClick={function() { setActiveTab("followups"); }} style={{ fontSize: 12, color: "#dc2626", background: "#fef2f2", padding: "4px 10px", borderRadius: 6, border: "1px solid #fecaca", fontWeight: 600, cursor: "pointer" }}>
-⚠ {overdueCount} overdue
-</div>
-)}
-<div style={{ fontSize: 12, color: "#94a3b8", background: "#f8fafc", padding: "4px 10px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
-{profile && profile.plan === "free" ? (profile.message_count || 0) + "/" + FREE_LIMIT : "Unlimited"}
-</div>
-<button onClick={handleSignOut} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#64748b", padding: "6px 14px", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>Sign Out</button>
-</div>
-</div>
-
-{/* TABS */}
-<div style={{ display: "flex", borderBottom: "1px solid #e2e8f0", background: "#fff", padding: "0 20px", overflowX: "auto" }}>
-{tabs.map(function(tab) {
-var isActive = activeTab === tab.id;
-return (
-<button key={tab.id} onClick={function() { setActiveTab(tab.id); }}
-style={{ padding: "13px 12px", border: "none", borderBottom: isActive ? "2px solid " + specialty.color : "2px solid transparent", background: "none", color: isActive ? specialty.color : "#94a3b8", fontSize: 12, fontWeight: isActive ? 600 : 400, cursor: "pointer", fontFamily: "inherit", marginBottom: -1, whiteSpace: "nowrap", position: "relative" }}>
-{tab.icon} {tab.label}
-{tab.id === "followups" && overdueCount > 0 && (
-<span style={{ position: "absolute", top: 8, right: 2, width: 6, height: 6, background: "#dc2626", borderRadius: "50%" }} />
-)}
-{tab.id === "billing" && unpaidCount > 0 && (
-<span style={{ position: "absolute", top: 8, right: 2, width: 6, height: 6, background: "#d97706", borderRadius: "50%" }} />
-)}
-</button>
-);
-})}
-</div>
-
-{/* DASHBOARD */}
-{activeTab === "dashboard" && (
-<div style={{ flex: 1, padding: "24px 20px", maxWidth: 900, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-<div style={{ marginBottom: 24 }}>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>Practice Dashboard</div>
-<div style={{ fontSize: 13, color: "#94a3b8" }}>Welcome back, Doctor</div>
-</div>
-
-<div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
-{[
-{ label: "Total Revenue", value: formatCurrency(totalRevenue), icon: "💰", color: "#16a34a", bg: "#f0fdf4" },
-{ label: "This Month", value: formatCurrency(monthlyRevenue), icon: "📅", color: "#2563eb", bg: "#eff6ff" },
-{ label: "Outstanding", value: formatCurrency(totalOutstanding), icon: "⏳", color: "#d97706", bg: "#fffbeb" },
-{ label: "Patients", value: patients.length, icon: "👤", color: "#7c3aed", bg: "#faf5ff" },
-].map(function(stat) {
-return (
-<div key={stat.label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 16 }}>
-<div style={{ fontSize: 20, marginBottom: 8 }}>{stat.icon}</div>
-<div style={{ fontSize: 20, fontWeight: 700, color: stat.color, marginBottom: 4 }}>{stat.value}</div>
-<div style={{ fontSize: 12, color: "#94a3b8" }}>{stat.label}</div>
-</div>
-);
-})}
-</div>
-
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20 }}>
-<div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", marginBottom: 16 }}>Payment Split</div>
-{(function() {
-var cashInvoices = invoices.filter(function(i) { return i.payment_type === "cash"; });
-var medAidInvoices = invoices.filter(function(i) { return i.payment_type === "medical_aid"; });
-var cashTotal = cashInvoices.reduce(function(s, i) { return s + parseFloat(i.amount_paid || 0); }, 0);
-var medTotal = medAidInvoices.reduce(function(s, i) { return s + parseFloat(i.amount_paid || 0); }, 0);
-var total = cashTotal + medTotal || 1;
-return (
-<div>
-<div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-<span style={{ fontSize: 13, color: "#64748b" }}>💵 Cash</span>
-<span style={{ fontSize: 13, fontWeight: 600, color: "#16a34a" }}>{formatCurrency(cashTotal)}</span>
-</div>
-<div style={{ height: 8, background: "#f1f5f9", borderRadius: 4, marginBottom: 12, overflow: "hidden" }}>
-<div style={{ height: "100%", width: (cashTotal / total * 100) + "%", background: "#16a34a", borderRadius: 4 }} />
-</div>
-<div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-<span style={{ fontSize: 13, color: "#64748b" }}>🏥 Medical Aid</span>
-<span style={{ fontSize: 13, fontWeight: 600, color: "#0891b2" }}>{formatCurrency(medTotal)}</span>
-</div>
-<div style={{ height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
-<div style={{ height: "100%", width: (medTotal / total * 100) + "%", background: "#0891b2", borderRadius: 4 }} />
-</div>
-</div>
-);
-})()}
-</div>
-
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20 }}>
-<div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", marginBottom: 16 }}>Quick Actions</div>
-<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-<button onClick={function() { setActiveTab("billing"); setBillingView("new"); }}
-style={{ padding: "10px 14px", borderRadius: 8, border: "none", background: specialty.color, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-💰 New Invoice
-</button>
-<button onClick={function() { setActiveTab("patients"); setPatientView("add"); }}
-style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#1e293b", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-👤 Add Patient
-</button>
-<button onClick={function() { setActiveTab("voice"); }}
-style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#1e293b", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-🎤 Start Voice Note
-</button>
-<button onClick={function() { setActiveTab("suggester"); }}
-style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#1e293b", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-💡 Run AI Suggester
-</button>
-</div>
-</div>
-</div>
-
-{overdueCount > 0 && (
-<div onClick={function() { setActiveTab("followups"); }} style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: 16, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-<div>
-<div style={{ fontSize: 14, fontWeight: 600, color: "#dc2626", marginBottom: 2 }}>⚠ {overdueCount} overdue follow-up{overdueCount > 1 ? "s" : ""}</div>
-<div style={{ fontSize: 12, color: "#b91c1c" }}>Tap to view and send reminders</div>
-</div>
-<div style={{ color: "#dc2626", fontSize: 18 }}>›</div>
-</div>
-)}
-</div>
-)}
-
-{/* AI CHAT */}
-{activeTab === "chat" && (
-<div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-<div style={{ display: "flex", gap: 6, padding: "10px 20px", borderBottom: "1px solid #f1f5f9", overflowX: "auto", background: "#fff" }}>
-{specialty.modes.map(function(mode) {
-var isActive = activeMode && activeMode.id === mode.id;
-return (
-<button key={mode.id} onClick={function() { setActiveMode(mode); setMessages([]); }}
-style={{ padding: "7px 14px", borderRadius: 20, border: "1.5px solid " + (isActive ? mode.color : "#e2e8f0"), background: isActive ? mode.color + "18" : "#fff", color: isActive ? mode.color : "#64748b", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit", fontWeight: isActive ? 600 : 400 }}>
-{mode.icon} {mode.label}
-</button>
-);
-})}
-</div>
-<div style={{ flex: 1, overflowY: "auto", padding: "24px 20px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-{messages.length === 0 && (
-<div style={{ textAlign: "center", marginTop: 80 }}>
-<div style={{ fontSize: 36, marginBottom: 12 }}>{activeMode ? activeMode.icon : "🏥"}</div>
-<div style={{ fontSize: 16, fontWeight: 600, color: "#94a3b8", marginBottom: 6 }}>{activeMode ? activeMode.label : "Welcome"} Mode</div>
-<div style={{ fontSize: 13, color: "#cbd5e1" }}>Ask your {specialty.label} question below</div>
-</div>
-)}
-{messages.map(function(msg, i) {
-return (
-<div key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: 16 }}>
-{msg.role === "assistant" && activeMode && (
-<div style={{ width: 28, height: 28, borderRadius: "50%", background: activeMode.color + "18", border: "1.5px solid " + activeMode.color + "30", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, marginRight: 8, flexShrink: 0, marginTop: 2 }}>
-{activeMode.icon}
-</div>
-)}
-<div style={msg.role === "user" ? userBubbleStyle(activeMode ? activeMode.color : "#2563eb") : aiBubbleStyle}>{msg.content}</div>
-</div>
-);
-})}
-{loading && activeMode && (
-<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
-<div style={{ width: 28, height: 28, borderRadius: "50%", background: activeMode.color + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>{activeMode.icon}</div>
-<div style={{ color: "#94a3b8", fontSize: 13 }}>PLASMED is thinking…</div>
-</div>
-)}
-<div ref={bottomRef} />
-</div>
-<div style={{ padding: "14px 20px 24px", background: "#fff", borderTop: "1px solid #e2e8f0" }}>
-<div style={{ maxWidth: 780, margin: "0 auto", display: "flex", gap: 10, alignItems: "flex-end" }}>
-<textarea value={input} onChange={function(e) { setInput(e.target.value); }}
-onKeyDown={function(e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-placeholder={activeMode ? "Ask " + activeMode.label + " anything..." : "Ask anything..."}
-rows={1} style={{ flex: 1, padding: "12px 16px", borderRadius: 14, border: "1.5px solid " + (activeMode ? activeMode.color + "44" : "#e2e8f0"), background: "#f8fafc", color: "#1e293b", fontSize: 14, resize: "none", fontFamily: "inherit", outline: "none" }} />
-<button onClick={sendMessage} disabled={!input.trim() || loading}
-style={{ width: 46, height: 46, borderRadius: 12, border: "none", background: input.trim() && !loading ? (activeMode ? activeMode.color : "#2563eb") : "#e2e8f0", cursor: input.trim() && !loading ? "pointer" : "not-allowed", color: input.trim() && !loading ? "#fff" : "#94a3b8", fontSize: 18, fontWeight: 700 }}>↑</button>
-</div>
-</div>
-</div>
-)}
-
-{/* VOICE-TO-NOTE */}
-{activeTab === "voice" && (
-<div style={{ flex: 1, padding: "32px 20px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-<div style={{ marginBottom: 24 }}>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>Voice-to-Note</div>
-<div style={{ fontSize: 13, color: "#94a3b8" }}>Speak your consultation — PLASMED generates a structured clinical note</div>
-</div>
-<div style={{ textAlign: "center", marginBottom: 28 }}>
-<button onClick={isRecording ? stopRecording : startRecording}
-style={{ width: 80, height: 80, borderRadius: "50%", border: "none", background: isRecording ? "#dc2626" : specialty.color, color: "#fff", fontSize: 32, cursor: "pointer", boxShadow: isRecording ? "0 0 0 8px rgba(220,38,38,0.2)" : "0 4px 16px rgba(0,0,0,0.12)" }}>
-{isRecording ? "⏹" : "🎤"}
-</button>
-<div style={{ marginTop: 12, fontSize: 13, color: isRecording ? "#dc2626" : "#94a3b8", fontWeight: isRecording ? 600 : 400 }}>
-{isRecording ? "Recording... tap to stop" : "Tap to start recording"}
-</div>
-</div>
-{transcript && (
-<div style={{ marginBottom: 20 }}>
-<div style={labelStyle}>TRANSCRIPT</div>
-<div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, fontSize: 14, color: "#1e293b", lineHeight: 1.65, minHeight: 80 }}>{transcript}</div>
-<button onClick={generateNote} disabled={noteLoading}
-style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: noteLoading ? "#e2e8f0" : specialty.color, color: noteLoading ? "#94a3b8" : "#fff", fontSize: 14, fontWeight: 600, cursor: noteLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
-{noteLoading ? "Generating note…" : "✨ Generate Clinical Note"}
-</button>
-</div>
-)}
-{generatedNote && (
-<div>
-<div style={labelStyle}>GENERATED NOTE</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, fontSize: 14, color: "#1e293b", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{generatedNote}</div>
-<button onClick={function() { copyText(generatedNote); }}
-style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: copied ? "#16a34a" : "#0f172a", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-{copied ? "✓ Copied!" : "📋 Copy for EMR"}
-</button>
-<button onClick={function() { setTranscript(""); setGeneratedNote(""); }}
-style={{ marginTop: 8, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>
-New Consultation
-</button>
-</div>
-)}
-</div>
-)}
-
-{/* PATIENTS */}
-{activeTab === "patients" && (
-<div style={{ flex: 1, padding: "24px 20px", maxWidth: 860, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-{patientView === "list" && (
-<div>
-<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-<div>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>Patients</div>
-<div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>{patients.length} registered</div>
-</div>
-<button onClick={function() { setPatientView("add"); }}
-style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: specialty.color, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-+ Add Patient
-</button>
-</div>
-<input placeholder="Search patients..." value={searchText} onChange={function(e) { setSearchText(e.target.value); }}
-style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", marginBottom: 16, boxSizing: "border-box" }} />
-{patientsLoading ? (
-<div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Loading…</div>
-) : filteredPatients.length === 0 ? (
-<div style={{ textAlign: "center", padding: 60 }}>
-<div style={{ fontSize: 32, marginBottom: 12 }}>👤</div>
-<div style={{ fontSize: 15, fontWeight: 600, color: "#94a3b8" }}>No patients yet</div>
-</div>
-) : (
-<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-{filteredPatients.map(function(p) {
-return (
-<div key={p.id} onClick={function() { setSelectedPatient(p); setPatientView("profile"); setAiReminder(""); }}
-style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-<div>
-<div style={{ fontSize: 15, fontWeight: 600, color: "#0f172a", marginBottom: 3 }}>{p.full_name}</div>
-<div style={{ fontSize: 12, color: "#94a3b8" }}>{p.age ? "Age " + p.age : ""}{p.gender ? " · " + p.gender : ""}{p.last_treatment ? " · " + p.last_treatment : ""}</div>
-</div>
-<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-<div style={{ fontSize: 11, fontWeight: 600, color: p.payment_type === "medical_aid" ? "#0891b2" : "#16a34a", background: p.payment_type === "medical_aid" ? "#e0f2fe" : "#f0fdf4", padding: "3px 8px", borderRadius: 8 }}>
-{p.payment_type === "medical_aid" ? "Med Aid" : "Cash"}
-</div>
-<div style={{ color: "#94a3b8", fontSize: 18 }}>›</div>
-</div>
-</div>
-);
-})}
-</div>
-)}
-</div>
-)}
-
-{patientView === "add" && (
-<div>
-<div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-<button onClick={function() { setPatientView("list"); setNewPatient(emptyPatient); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#64748b" }}>←</button>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>New Patient</div>
-</div>
-{[
-{ title: "Personal Details", fields: [
-{ label: "FULL NAME *", key: "full_name", placeholder: "Full name", span: 1 },
-{ label: "AGE", key: "age", placeholder: "Age", type: "number", span: 1 },
-{ label: "GENDER", key: "gender", type: "select", options: ["", "Male", "Female", "Other"], span: 1 },
-{ label: "PHONE", key: "phone", placeholder: "082 123 4567", span: 1 },
-{ label: "ID NUMBER", key: "id_number", placeholder: "SA ID number", span: 2 },
-]},
-{ title: "Medical History", fields: [
-{ label: "CHRONIC CONDITIONS", key: "chronic_conditions", placeholder: "e.g. Hypertension, Diabetes Type 2", span: 2 },
-{ label: "CURRENT MEDICATIONS", key: "current_medications", placeholder: "e.g. Metformin 500mg", span: 2 },
-{ label: "ALLERGIES", key: "allergies", placeholder: "e.g. Penicillin", span: 2 },
-]},
-{ title: "Visit & Follow-up", fields: [
-{ label: "LAST VISIT DATE *", key: "last_visit", type: "date", span: 1 },
-{ label: "TREATMENT / REASON", key: "last_treatment", placeholder: "e.g. Hypertension review", span: 1 },
-{ label: "FOLLOW-UP IN (DAYS)", key: "follow_up_days", type: "number", placeholder: "14", span: 1 },
-{ label: "CLINICAL NOTES", key: "clinical_notes", placeholder: "Additional notes", span: 2 },
-]},
-].map(function(section) {
-return (
-<div key={section.title} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
-<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>{section.title}</div>
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-{section.fields.map(function(field) {
-return (
-<div key={field.key} style={{ gridColumn: field.span === 2 ? "span 2" : "span 1" }}>
-<label style={labelStyle}>{field.label}</label>
-{field.type === "select" ? (
-<select value={newPatient[field.key]} onChange={function(e) { var u = {}; u[field.key] = e.target.value; setNewPatient(Object.assign({}, newPatient, u)); }} style={inputStyle}>
-{field.options.map(function(o) { return <option key={o} value={o}>{o || "Select"}</option>; })}
-</select>
-) : (
-<input value={newPatient[field.key]} type={field.type || "text"} placeholder={field.placeholder || ""} onChange={function(e) { var u = {}; u[field.key] = e.target.value; setNewPatient(Object.assign({}, newPatient, u)); }} style={inputStyle} />
-)}
-</div>
-);
-})}
-</div>
-</div>
-);
-})}
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20 }}>
-<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Payment</div>
-<div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-{["cash", "medical_aid"].map(function(type) {
-return (
-<button key={type} onClick={function() { setNewPatient(Object.assign({}, newPatient, { payment_type: type })); }}
-style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1.5px solid " + (newPatient.payment_type === type ? specialty.color : "#e2e8f0"), background: newPatient.payment_type === type ? specialty.color + "12" : "#fff", color: newPatient.payment_type === type ? specialty.color : "#64748b", fontSize: 13, fontWeight: newPatient.payment_type === type ? 600 : 400, cursor: "pointer", fontFamily: "inherit" }}>
-{type === "cash" ? "💵 Cash" : "🏥 Medical Aid"}
-</button>
-);
-})}
-</div>
-{newPatient.payment_type === "medical_aid" && (
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-<div><label style={labelStyle}>MEDICAL AID NAME</label><input value={newPatient.medical_aid_name} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { medical_aid_name: e.target.value })); }} style={inputStyle} placeholder="e.g. Discovery" /></div>
-<div><label style={labelStyle}>MEMBER NUMBER</label><input value={newPatient.medical_aid_number} onChange={function(e) { setNewPatient(Object.assign({}, newPatient, { medical_aid_number: e.target.value })); }} style={inputStyle} placeholder="Member number" /></div>
-</div>
-)}
-</div>
-<button onClick={savePatient} disabled={saving || !newPatient.full_name || !newPatient.last_visit}
-style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: saving || !newPatient.full_name ? "#e2e8f0" : specialty.color, color: saving || !newPatient.full_name ? "#94a3b8" : "#fff", fontSize: 15, fontWeight: 600, cursor: saving || !newPatient.full_name ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
-{saving ? "Saving…" : "Save Patient"}
-</button>
-</div>
-)}
-
-{patientView === "profile" && selectedPatient && (
-<div>
-<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-<div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-<button onClick={function() { setPatientView("list"); setSelectedPatient(null); setAiReminder(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#64748b" }}>←</button>
-<div>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{selectedPatient.full_name}</div>
-<div style={{ fontSize: 12, color: "#94a3b8" }}>{selectedPatient.age ? "Age " + selectedPatient.age : ""}{selectedPatient.gender ? " · " + selectedPatient.gender : ""}</div>
-</div>
-</div>
-<div style={{ display: "flex", gap: 8 }}>
-<button onClick={function() { setNewInvoice(Object.assign({}, emptyInvoice, { patient_id: selectedPatient.id })); setActiveTab("billing"); setBillingView("new"); }}
-style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: specialty.color, color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>+ Invoice</button>
-<button onClick={function() { deletePatient(selectedPatient.id); }}
-style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #fecaca", background: "#fef2f2", color: "#dc2626", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Delete</button>
-</div>
-</div>
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
-<div style={labelStyle}>PAYMENT</div>
-<div style={{ fontSize: 14, fontWeight: 600, color: selectedPatient.payment_type === "medical_aid" ? "#0891b2" : "#16a34a" }}>{selectedPatient.payment_type === "medical_aid" ? "Medical Aid" : "Cash"}</div>
-{selectedPatient.medical_aid_name && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{selectedPatient.medical_aid_name} · {selectedPatient.medical_aid_number}</div>}
-</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
-<div style={labelStyle}>CONTACT</div>
-<div style={{ fontSize: 14, color: "#1e293b" }}>{selectedPatient.phone || "—"}</div>
-{selectedPatient.id_number && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>ID: {selectedPatient.id_number}</div>}
-</div>
-</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, marginBottom: 12 }}>
-<div style={labelStyle}>CHRONIC CONDITIONS</div>
-<div style={{ fontSize: 14, color: "#1e293b", marginBottom: 10 }}>{selectedPatient.chronic_conditions || "None recorded"}</div>
-<div style={labelStyle}>CURRENT MEDICATIONS</div>
-<div style={{ fontSize: 14, color: "#1e293b", marginBottom: 10 }}>{selectedPatient.current_medications || "None recorded"}</div>
-<div style={labelStyle}>ALLERGIES</div>
-<div style={{ fontSize: 14, color: selectedPatient.allergies ? "#dc2626" : "#1e293b", fontWeight: selectedPatient.allergies ? 600 : 400 }}>{selectedPatient.allergies || "None recorded"}</div>
-</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, marginBottom: 14 }}>
-<div style={labelStyle}>LAST VISIT</div>
-<div style={{ fontSize: 14, color: "#1e293b", marginBottom: 6 }}>{selectedPatient.last_visit} · {selectedPatient.last_treatment || "—"}</div>
-<div style={labelStyle}>CLINICAL NOTES</div>
-<div style={{ fontSize: 14, color: "#1e293b" }}>{selectedPatient.clinical_notes || "—"}</div>
-</div>
-<button onClick={function() { generateReminder(selectedPatient); }}
-style={{ width: "100%", padding: "12px", borderRadius: 10, border: "none", background: specialty.color, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginBottom: 10 }}>
-🔔 Generate AI Follow-up Reminder
-</button>
-{reminderLoading && <div style={{ fontSize: 13, color: "#94a3b8", textAlign: "center", padding: 12 }}>Generating…</div>}
-{aiReminder && (
-<div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14 }}>
-<div style={labelStyle}>AI REMINDER</div>
-<div style={{ fontSize: 14, color: "#1e293b", lineHeight: 1.6, marginBottom: 10 }}>{aiReminder}</div>
-<button onClick={function() { copyText(aiReminder); }}
-style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#0f172a", color: "#fff", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
-{copied ? "✓ Copied!" : "📋 Copy"}
-</button>
-</div>
-)}
-</div>
-)}
-</div>
-)}
-
-{/* FOLLOW-UPS */}
-{activeTab === "followups" && (
-<div style={{ flex: 1, padding: "24px 20px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-<div style={{ marginBottom: 20 }}>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>Follow-ups</div>
-<div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>
-{overdueCount} overdue · {patients.filter(function(p) { var d = p.last_visit ? getDaysUntilFollowUp(p.last_visit, p.follow_up_days) : 99; return d >= 0 && d <= 7; }).length} due this week
-</div>
-</div>
-{patients.length === 0 ? (
-<div style={{ textAlign: "center", padding: 60 }}>
-<div style={{ fontSize: 32, marginBottom: 12 }}>🔔</div>
-<div style={{ fontSize: 15, fontWeight: 600, color: "#94a3b8", marginBottom: 16 }}>No patients yet</div>
-<button onClick={function() { setActiveTab("patients"); setPatientView("add"); }}
-style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: specialty.color, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-+ Add First Patient
-</button>
-</div>
-) : (
-<div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-{patients.filter(function(p) { return p.last_visit; }).sort(function(a, b) {
-return getDaysUntilFollowUp(a.last_visit, a.follow_up_days) - getDaysUntilFollowUp(b.last_visit, b.follow_up_days);
-}).map(function(patient) {
-var days = getDaysUntilFollowUp(patient.last_visit, patient.follow_up_days);
-var isOverdue = days < 0;
-var isDueSoon = days >= 0 && days <= 7;
-var statusColor = isOverdue ? "#dc2626" : isDueSoon ? "#d97706" : "#16a34a";
-var statusBg = isOverdue ? "#fef2f2" : isDueSoon ? "#fffbeb" : "#f0fdf4";
-var statusText = isOverdue ? Math.abs(days) + "d overdue" : "Due in " + days + "d";
-return (
-<div key={patient.id} style={{ background: "#fff", border: "1px solid " + (isOverdue ? "#fecaca" : "#e2e8f0"), borderRadius: 12, padding: 16 }}>
-<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-<div style={{ flex: 1 }}>
-<div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-<div style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>{patient.full_name}</div>
-<div style={{ fontSize: 11, fontWeight: 600, color: statusColor, background: statusBg, padding: "2px 8px", borderRadius: 10 }}>{statusText}</div>
-</div>
-<div style={{ fontSize: 12, color: "#64748b" }}>Last: {patient.last_treatment} · {patient.last_visit}</div>
-</div>
-<button onClick={function() { setSelectedPatient(patient); setPatientView("profile"); setActiveTab("patients"); generateReminder(patient); }}
-style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid " + specialty.color + "44", background: specialty.color + "10", color: specialty.color, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginLeft: 12, whiteSpace: "nowrap" }}>
-AI Reminder
-</button>
-</div>
-</div>
-);
-})}
-</div>
-)}
-</div>
-)}
-
-{/* MY PROTOCOLS */}
-{activeTab === "protocols" && (
-<div style={{ flex: 1, padding: "24px 20px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-<div style={{ marginBottom: 24 }}>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>My Protocols</div>
-<div style={{ fontSize: 13, color: "#94a3b8" }}>Teach PLASMED your clinical patterns — it will proactively suggest based on your rules</div>
-</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20 }}>
-<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Add New Protocol</div>
-<div style={{ marginBottom: 12 }}>
-<label style={labelStyle}>IF THIS CONDITION / TRIGGER</label>
-<input value={newTrigger} onChange={function(e) { setNewTrigger(e.target.value); }} style={inputStyle} placeholder='e.g. "Patient had Jessner\'s peel twice"' />
-</div>
-<div style={{ marginBottom: 16 }}>
-<label style={labelStyle}>THEN SUGGEST THIS ACTION</label>
-<input value={newAction} onChange={function(e) { setNewAction(e.target.value); }} style={inputStyle} placeholder='e.g. "Consider Cosmelan next"' />
-</div>
-<button onClick={saveProtocol} disabled={savingProtocol || !newTrigger.trim() || !newAction.trim()}
-style={{ width: "100%", padding: "11px", borderRadius: 10, border: "none", background: !newTrigger.trim() || !newAction.trim() ? "#e2e8f0" : specialty.color, color: !newTrigger.trim() || !newAction.trim() ? "#94a3b8" : "#fff", fontSize: 14, fontWeight: 600, cursor: !newTrigger.trim() || !newAction.trim() ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
-{savingProtocol ? "Saving…" : "Save Protocol"}
-</button>
-</div>
-{protocolsLoading ? (
-<div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Loading…</div>
-) : protocols.length === 0 ? (
-<div style={{ textAlign: "center", padding: 40 }}>
-<div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-<div style={{ fontSize: 14, color: "#94a3b8" }}>No protocols yet — add your first clinical rule above</div>
-</div>
-) : (
-<div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-{protocols.map(function(p) {
-return (
-<div key={p.id} style={{ background: "#fff", border: "1px solid " + (p.active ? "#e2e8f0" : "#f1f5f9"), borderRadius: 12, padding: 16, opacity: p.active ? 1 : 0.5 }}>
-<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-<div style={{ flex: 1 }}>
-<div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>IF</div>
-<div style={{ fontSize: 14, color: "#1e293b", marginBottom: 8 }}>{p.trigger_condition}</div>
-<div style={{ fontSize: 12, fontWeight: 600, color: specialty.color, marginBottom: 4 }}>THEN</div>
-<div style={{ fontSize: 14, color: "#1e293b" }}>{p.suggested_action}</div>
-</div>
-<div style={{ display: "flex", gap: 8, marginLeft: 12 }}>
-<button onClick={function() { toggleProtocol(p.id, p.active); }}
-style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #e2e8f0", background: p.active ? "#f0fdf4" : "#f8fafc", color: p.active ? "#16a34a" : "#94a3b8", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
-{p.active ? "Active" : "Off"}
-</button>
-<button onClick={function() { deleteProtocol(p.id); }}
-style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #fecaca", background: "#fef2f2", color: "#dc2626", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
-Delete
-</button>
-</div>
-</div>
-</div>
-);
-})}
-</div>
-)}
-</div>
-)}
-
-{/* AI SUGGESTER */}
-{activeTab === "suggester" && (
-<div style={{ flex: 1, padding: "24px 20px", maxWidth: 780, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-<div style={{ marginBottom: 24 }}>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>AI Treatment Suggester</div>
-<div style={{ fontSize: 13, color: "#94a3b8" }}>PLASMED analyses all your patients against your protocols and flags who needs attention</div>
-</div>
-{protocols.filter(function(p) { return p.active; }).length === 0 ? (
-<div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: 20, textAlign: "center" }}>
-<div style={{ fontSize: 14, color: "#92400e", fontWeight: 600, marginBottom: 4 }}>No active protocols</div>
-<div style={{ fontSize: 13, color: "#b45309", marginBottom: 12 }}>Add protocols in My Protocols tab first</div>
-<button onClick={function() { setActiveTab("protocols"); }}
-style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#d97706", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-Go to My Protocols
-</button>
-</div>
-) : (
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20 }}>
-<div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
-<strong>{protocols.filter(function(p) { return p.active; }).length}</strong> active protocols · <strong>{patients.length}</strong> patients
-</div>
-<button onClick={runTreatmentSuggester} disabled={suggestionsLoading || patients.length === 0}
-style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: suggestionsLoading ? "#e2e8f0" : specialty.color, color: suggestionsLoading ? "#94a3b8" : "#fff", fontSize: 15, fontWeight: 600, cursor: suggestionsLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
-{suggestionsLoading ? "Analysing patients…" : "💡 Run AI Treatment Suggester"}
-</button>
-</div>
-)}
-{suggestions.length > 0 && (
-<div>
-<div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", marginBottom: 12 }}>{suggestions.length} suggestion{suggestions.length > 1 ? "s" : ""} found</div>
-<div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-{suggestions.map(function(s, i) {
-return (
-<div key={i} style={{ background: "#fff", border: "1px solid " + specialty.color + "33", borderLeft: "4px solid " + specialty.color, borderRadius: 12, padding: 16 }}>
-<div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-<div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{s.patient}</div>
-<div style={{ fontSize: 11, color: specialty.color, background: specialty.color + "12", padding: "3px 8px", borderRadius: 8, fontWeight: 600 }}>Protocol Match</div>
-</div>
-<div style={{ fontSize: 14, color: "#1e293b", marginBottom: 6, fontWeight: 500 }}>💡 {s.suggestion}</div>
-<div style={{ fontSize: 12, color: "#94a3b8" }}>{s.reason}</div>
-</div>
-);
-})}
-</div>
-</div>
-)}
-</div>
-)}
-
-{/* BILLING */}
-{activeTab === "billing" && (
-<div style={{ flex: 1, padding: "24px 20px", maxWidth: 860, width: "100%", margin: "0 auto", alignSelf: "stretch" }}>
-
-{billingView === "list" && (
-<div>
-<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-<div>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>Billing</div>
-<div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>{invoices.length} invoices · {formatCurrency(totalOutstanding)} outstanding</div>
-</div>
-<button onClick={function() { setNewInvoice(emptyInvoice); setBillingView("new"); }}
-style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: specialty.color, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-+ New Invoice
-</button>
-</div>
-{invoicesLoading ? (
-<div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>Loading…</div>
-) : invoices.length === 0 ? (
-<div style={{ textAlign: "center", padding: 60 }}>
-<div style={{ fontSize: 32, marginBottom: 12 }}>💰</div>
-<div style={{ fontSize: 15, fontWeight: 600, color: "#94a3b8" }}>No invoices yet</div>
-</div>
-) : (
-<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-{invoices.map(function(inv) {
-var patient = inv.patients || {};
-var outstanding = parseFloat(inv.amount_due) - parseFloat(inv.amount_paid || 0);
-return (
-<div key={inv.id} onClick={function() { setSelectedInvoice(inv); setBillingView("detail"); }}
-style={{ background: "#fff", border: "1px solid " + (inv.status === "unpaid" ? "#fde68a" : "#e2e8f0"), borderRadius: 12, padding: 16, cursor: "pointer" }}>
-<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-<div>
-<div style={{ fontSize: 15, fontWeight: 600, color: "#0f172a", marginBottom: 3 }}>{patient.full_name || "—"}</div>
-<div style={{ fontSize: 12, color: "#94a3b8" }}>{inv.invoice_number} · {inv.invoice_date}</div>
-</div>
-<div style={{ textAlign: "right" }}>
-<div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>{formatCurrency(inv.amount_due)}</div>
-<div style={{ fontSize: 11, fontWeight: 600, color: inv.status === "paid" ? "#16a34a" : "#d97706", background: inv.status === "paid" ? "#f0fdf4" : "#fffbeb", padding: "2px 8px", borderRadius: 8 }}>
-{inv.status === "paid" ? "Paid" : "Unpaid · " + formatCurrency(outstanding)}
-</div>
-</div>
-</div>
-</div>
-);
-})}
-</div>
-)}
-</div>
-)}
-
-{billingView === "new" && (
-<div>
-<div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-<button onClick={function() { setBillingView("list"); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#64748b" }}>←</button>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>New Invoice</div>
-</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
-<div style={{ fontSize: 12, fontWeight: 700, color: specialty.color, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>Consultation Details</div>
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-<div style={{ gridColumn: "span 2" }}>
-<label style={labelStyle}>PATIENT *</label>
-<select value={newInvoice.patient_id} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { patient_id: e.target.value })); }} style={inputStyle}>
-<option value="">Select patient</option>
-{patients.map(function(p) { return <option key={p.id} value={p.id}>{p.full_name}</option>; })}
-</select>
-</div>
-<div>
-<label style={labelStyle}>CONSULTATION DATE</label>
-<input value={newInvoice.consultation_date} type="date" onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { consultation_date: e.target.value })); }} style={inputStyle} />
-</div>
-<div>
-<label style={labelStyle}>DUE DATE</label>
-<input value={newInvoice.due_date} type="date" onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { due_date: e.target.value })); }} style={inputStyle} />
-</div>
-<div style={{ gridColumn: "span 2" }}>
-<label style={labelStyle}>REASON / SERVICE</label>
-<input value={newInvoice.reason} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { reason: e.target.value })); }} style={inputStyle} placeholder="e.g. General consultation, Hypertension review" />
-</div>
-<div>
-<label style={labelStyle}>ICD-10 CODE</label>
-<input value={newInvoice.icd10_code} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { icd10_code: e.target.value })); }} style={inputStyle} placeholder="e.g. I10" />
-</div>
-<div>
-<label style={labelStyle}>ICD-10 DESCRIPTION</label>
-<input value={newInvoice.icd10_description} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { icd10_description: e.target.value })); }} style={inputStyle} placeholder="e.g. Essential hypertension" />
-</div>
-<div>
-<label style={labelStyle}>FEE (R) *</label>
-<input value={newInvoice.fee} type="number" onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { fee: e.target.value })); }} style={inputStyle} placeholder="0.00" />
-</div>
-<div style={{ gridColumn: "span 2" }}>
-<label style={labelStyle}>NOTES</label>
-<input value={newInvoice.notes} onChange={function(e) { setNewInvoice(Object.assign({}, newInvoice, { notes: e.target.value })); }} style={inputStyle} placeholder="Additional notes" />
-</div>
-</div>
-</div>
-<button onClick={saveInvoice} disabled={savingInvoice || !newInvoice.patient_id || !newInvoice.fee}
-style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: savingInvoice || !newInvoice.patient_id || !newInvoice.fee ? "#e2e8f0" : specialty.color, color: savingInvoice || !newInvoice.patient_id || !newInvoice.fee ? "#94a3b8" : "#fff", fontSize: 15, fontWeight: 600, cursor: savingInvoice || !newInvoice.patient_id || !newInvoice.fee ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
-{savingInvoice ? "Saving…" : "Create Invoice"}
-</button>
-</div>
-)}
-
-{billingView === "detail" && selectedInvoice && (
-<div>
-<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-<div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-<button onClick={function() { setBillingView("list"); setSelectedInvoice(null); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#64748b" }}>←</button>
-<div>
-<div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{selectedInvoice.invoice_number}</div>
-<div style={{ fontSize: 12, color: "#94a3b8" }}>{selectedInvoice.invoice_date}</div>
-</div>
-</div>
-<button onClick={function() { printInvoice(selectedInvoice); }}
-style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#0f172a", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-🖨 Print / PDF
-</button>
-</div>
-<div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 14 }}>
-<div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-<div>
-<div style={labelStyle}>PATIENT</div>
-<div style={{ fontSize: 16, fontWeight: 600, color: "#0f172a" }}>{selectedInvoice.patients ? selectedInvoice.patients.full_name : "—"}</div>
-<div style={{ fontSize: 12, color: "#64748b" }}>{selectedInvoice.payment_type === "medical_aid" ? selectedInvoice.medical_aid_name + " · " + selectedInvoice.medical_aid_number : "Cash Patient"}</div>
-</div>
-<div style={{ textAlign: "right" }}>
-<div style={labelStyle}>STATUS</div>
-<div style={{ fontSize: 14, fontWeight: 600, color: selectedInvoice.status === "paid" ? "#16a34a" : "#d97706" }}>
-{selectedInvoice.status === "paid" ? "✓ Paid" : "⏳ Unpaid"}
-</div>
-</div>
-</div>
-<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, paddingTop: 16, borderTop: "1px solid #f1f5f9" }}>
-<div><div style={labelStyle}>AMOUNT DUE</div><div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{formatCurrency(selectedInvoice.amount_due)}</div></div>
-<div><div style={labelStyle}>AMOUNT PAID</div><div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a" }}>{formatCurrency(selectedInvoice.amount_paid)}</div></div>
-<div><div style={labelStyle}>OUTSTANDING</div><div style={{ fontSize: 18, fontWeight: 700, color: "#d97706" }}>{formatCurrency(parseFloat(selectedInvoice.amount_due) - parseFloat(selectedInvoice.amount_paid || 0))}</div></div>
-</div>
-</div>
-{selectedInvoice.status === "unpaid" && (
-<button onClick={function() { markAsPaid(selectedInvoice); }} disabled={markingPaid}
-style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: markingPaid ? "#e2e8f0" : "#16a34a", color: markingPaid ? "#94a3b8" : "#fff", fontSize: 15, fontWeight: 600, cursor: markingPaid ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
-{markingPaid ? "Processing…" : "✓ Mark as Paid"}
-</button>
-)}
-</div>
-)}
-</div>
-)}
-
-</div>
-);
+      {/* Main */}
+      <div style={S.main}>
+        <div style={S.topbar}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.slate600 }}>
+            {NAV.find(n => n.id === tab)?.icon} {tab === "patientdetail" ? `Patient — ${selectedPatient?.name}` : NAV.find(n => n.id === tab)?.label}
+          </div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <span style={{ ...S.badge("green"), fontSize: 12 }}>🟢 AI online</span>
+            <span style={{ fontSize: 13, color: C.slate400 }}>HPCSA: MP0412387</span>
+          </div>
+        </div>
+        <div style={S.content}>
+          {renderContent()}
+        </div>
+      </div>
+    </div>
+  );
 }
